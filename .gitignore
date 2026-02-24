@@ -1,0 +1,6 @@
+.env
+*.db
+*.ogg
+__pycache__/
+.next/
+node_modules/

@@ -1,0 +1,9 @@
+groq
+python-telegram-bot
+python-dotenv
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-jose[cryptography]
+alembic
