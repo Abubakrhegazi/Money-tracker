@@ -1,10 +1,2 @@
 [deploy]
 startCommand = "uvicorn api:app --host 0.0.0.0 --port $PORT"
-```
-
-Then for the bot, we'll add a second service on Railway:
-1. Go to Railway dashboard
-2. Click **New Service** → **GitHub Repo** → select the same repo
-3. In that service settings → **Deploy** tab → set start command to:
-```
-python main.py
