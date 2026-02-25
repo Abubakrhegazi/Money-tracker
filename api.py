@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
+import traceback
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -8,7 +10,7 @@ import hmac
 import os
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token 
+from database import Session, Expense, get_monthly_summary, consume_login_token, init_db
 from sqlalchemy import extract
 
 load_dotenv()
@@ -32,6 +34,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Global exception handler (ensures CORS headers on 500s) ──────────
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print(f"[ERROR] {request.method} {request.url}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
+# ── Startup ──────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 # ── Auth ──────────────────────────────────────────────────────────────
 
 def verify_telegram_auth(data: dict) -> bool:
@@ -141,7 +159,13 @@ class TelegramLinkAuthBody(BaseModel):
 
 @app.post("/auth/telegram-link")
 async def telegram_link_auth(body: TelegramLinkAuthBody):
-    telegram_user_id = consume_login_token(body.token)
+    try:
+        telegram_user_id = consume_login_token(body.token)
+    except Exception as e:
+        print(f"[ERROR] consume_login_token failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
     if not telegram_user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired link")
 
