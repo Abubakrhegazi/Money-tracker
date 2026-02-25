@@ -1,7 +1,7 @@
 import os
 import json
 from groq import Groq
-from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, Session, Expensefrom
+from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, Session, Expense
 from datetime import datetime
 
 from dotenv import load_dotenv
