@@ -23,7 +23,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        "https://moneybot-beta.vercel.app/"  # we'll add this after deploying frontend
+        "https://moneybot-beta.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],

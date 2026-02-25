@@ -9,7 +9,8 @@ export default function LoginPage() {
 
   const devLogin = async () => {
     setLoading(true);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/auth/test-token`);    const data = await res.json();
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/auth/test-token`);
+    const data = await res.json();
     setToken(data.token);
     router.push("/dashboard");
   };
