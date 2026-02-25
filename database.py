@@ -1,8 +1,10 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timedelta
+import secrets
+import hashlib
 
 Base = declarative_base()
 
@@ -26,6 +28,16 @@ class Expense(Base):
     merchant = Column(String, nullable=True)
     date = Column(String)
     transcript = Column(String)  # raw voice transcript, useful for debugging
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class LoginToken(Base):
+    __tablename__ = "login_tokens"
+
+    id = Column(Integer, primary_key=True)
+    telegram_user_id = Column(String, nullable=False, index=True)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def init_db():
@@ -105,5 +117,42 @@ def delete_expense(telegram_user_id: str, expense_id: int) -> bool:
     except Exception as e:
         session.rollback()
         raise e
+    finally:
+        session.close()
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+def create_login_token(telegram_user_id: str, minutes: int = 10) -> str:
+    raw = secrets.token_urlsafe(32)  # shareable token
+    session = Session()
+    try:
+        rec = LoginToken(
+            telegram_user_id=telegram_user_id,
+            token_hash=_hash_token(raw),
+            expires_at=datetime.utcnow() + timedelta(minutes=minutes),
+            used=False
+        )
+        session.add(rec)
+        session.commit()
+        return raw
+    finally:
+        session.close()
+
+def consume_login_token(raw: str) -> str | None:
+    """Returns telegram_user_id if valid, else None"""
+    h = _hash_token(raw)
+    session = Session()
+    try:
+        token = session.query(LoginToken).filter_by(token_hash=h).first()
+        if not token:
+            return None
+        if token.used:
+            return None
+        if token.expires_at <= datetime.utcnow():
+            return None
+
+        token.used = True
+        session.commit()
+        return token.telegram_user_id
     finally:
         session.close()

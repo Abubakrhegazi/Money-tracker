@@ -1,8 +1,10 @@
 import os
 import json
 from groq import Groq
-from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, Session, Expense
+from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, create_login_token, Session, Expense
 from datetime import datetime
+
+FRONTEND_URL = "https://moneybot-beta.vercel.app/"
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -392,7 +394,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return WAITING_FOR_EDIT
-
+async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    raw = create_login_token(user_id, minutes=10)
+    link = f"{FRONTEND_URL}/auth/telegram?t={raw}"
+    await update.message.reply_text(f"📊 Open your dashboard:\n{link}")
 
 def main():
     init_db()  # creates the DB file and tables if they don't exist
@@ -401,6 +407,7 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(CommandHandler("summary", summary_command)) 
     app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("dashboard", dashboard_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(

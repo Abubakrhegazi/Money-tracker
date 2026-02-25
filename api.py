@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 import hashlib
 import hmac
 import os
+from pydantic import BaseModel
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary
+from database import Session, Expense, get_monthly_summary, consume_login_token 
 from sqlalchemy import extract
 
 load_dotenv()
@@ -25,7 +26,7 @@ app.add_middleware(
         "http://localhost:3001",
         "https://moneybot-beta.vercel.app"
     ],
-    allow_credentials=True,
+    allow_credentials=True  ,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -132,4 +133,16 @@ async def monthly_trend(user=Depends(get_current_user)):
 async def test_token():
     """Remove this in production!"""
     token = create_jwt("687080661", "testuser")
+    return {"token": token}
+
+class TelegramLinkAuthBody(BaseModel):
+    token: str
+
+@app.post("/auth/telegram-link")
+async def telegram_link_auth(body: TelegramLinkAuthBody):
+    telegram_user_id = consume_login_token(body.token)
+    if not telegram_user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired link")
+
+    token = create_jwt(str(telegram_user_id), "")
     return {"token": token}
