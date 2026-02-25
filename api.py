@@ -20,7 +20,11 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-this-to-a-random-secret")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001"],  # Next.js dev server
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://your-vercel-url.vercel.app"  # we'll add this after deploying frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
