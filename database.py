@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///spending_tracker.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 
 class Expense(Base):
@@ -41,7 +41,11 @@ class LoginToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def init_db():
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception as e:
+        print(f"[WARNING] Could not connect to database during init: {e}")
+        print("[WARNING] Tables will be created on first successful connection.")
 
 def save_expense(telegram_user_id: str, expense: dict, transcript: str):
     session = Session()
