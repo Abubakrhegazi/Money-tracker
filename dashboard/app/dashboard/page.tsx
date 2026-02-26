@@ -6,7 +6,7 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
-import { LogOut, TrendingUp, Receipt, Wallet } from "lucide-react";
+import { LogOut, TrendingUp, Receipt, Wallet, Target, Edit3, Check, X } from "lucide-react";
 
 const CATEGORY_COLORS: Record<string, string> = {
   food: "#f97316",
@@ -28,16 +28,33 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [trend, setTrend] = useState<any[]>([]);
+  const [budget, setBudget] = useState<{ amount: number | null; currency: string }>({ amount: null, currency: "EGP" });
   const [loading, setLoading] = useState(true);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("");
 
   useEffect(() => {
     if (!getToken()) { router.push("/"); return; }
-    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend()])
-      .then(([s, h, t]) => { setSummary(s); setHistory(h); setTrend(t); })
+    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget()])
+      .then(([s, h, t, b]) => {
+        setSummary(s);
+        setHistory(h);
+        setTrend(t);
+        setBudget(b);
+        if (b.amount) setBudgetInput(b.amount.toString());
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const logout = () => { removeToken(); router.push("/"); };
+
+  const saveBudget = async () => {
+    const amount = parseFloat(budgetInput.replace(/,/g, ""));
+    if (isNaN(amount) || amount <= 0) return;
+    const result = await api.setBudget(amount);
+    setBudget(result);
+    setEditingBudget(false);
+  };
 
   if (loading) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -49,12 +66,17 @@ export default function DashboardPage() {
     name, value,
   }));
 
+  const spent = summary?.total || 0;
+  const budgetAmount = budget?.amount;
+  const budgetPct = budgetAmount ? Math.min((spent / budgetAmount) * 100, 100) : 0;
+  const remaining = budgetAmount ? budgetAmount - spent : null;
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6">
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold">💰 MoneyBot</h1>
+          <h1 className="text-2xl font-bold">✨ Aura</h1>
           <p className="text-gray-400 text-sm">{summary?.month}</p>
         </div>
         <button onClick={logout} className="flex items-center gap-2 text-gray-400 hover:text-white transition">
@@ -67,8 +89,67 @@ export default function DashboardPage() {
         <StatCard icon={<Wallet size={20} />} label="Total Spent" value={`${summary?.total?.toLocaleString()} EGP`} />
         <StatCard icon={<Receipt size={20} />} label="Transactions" value={summary?.count} />
         <StatCard icon={<TrendingUp size={20} />} label="Top Category"
-          value={`${CATEGORY_EMOJI[Object.entries(summary?.breakdown || {}).sort((a: any, b: any) => b[1] - a[1])[0]?.[0]]} ${Object.entries(summary?.breakdown || {}).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || "—"}`}
+          value={`${CATEGORY_EMOJI[Object.entries(summary?.breakdown || {}).sort((a: any, b: any) => b[1] - a[1])[0]?.[0]] || ""} ${Object.entries(summary?.breakdown || {}).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || "—"}`}
         />
+      </div>
+
+      {/* Budget Card */}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Target size={20} className="text-violet-400" /> Monthly Budget
+          </h2>
+          {!editingBudget ? (
+            <button
+              onClick={() => { setEditingBudget(true); setBudgetInput(budgetAmount?.toString() || ""); }}
+              className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition"
+            >
+              <Edit3 size={14} /> {budgetAmount ? "Edit" : "Set Budget"}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={budgetInput}
+                onChange={(e) => setBudgetInput(e.target.value)}
+                placeholder="e.g. 5000"
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm w-28 text-white focus:outline-none focus:border-violet-500"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && saveBudget()}
+              />
+              <span className="text-gray-400 text-sm">EGP</span>
+              <button onClick={saveBudget} className="text-green-400 hover:text-green-300 transition">
+                <Check size={18} />
+              </button>
+              <button onClick={() => setEditingBudget(false)} className="text-gray-500 hover:text-gray-300 transition">
+                <X size={18} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {budgetAmount ? (
+          <>
+            <div className="flex justify-between text-sm mb-2">
+              <span className="text-gray-400">
+                {spent.toLocaleString()} / {budgetAmount.toLocaleString()} {budget.currency}
+              </span>
+              <span className={remaining! >= 0 ? "text-green-400" : "text-red-400"}>
+                {remaining! >= 0 ? `${remaining!.toLocaleString()} left` : `${Math.abs(remaining!).toLocaleString()} over`}
+              </span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${budgetPct >= 100 ? "bg-red-500" : budgetPct >= 80 ? "bg-yellow-500" : "bg-violet-500"
+                  }`}
+                style={{ width: `${budgetPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-right">{budgetPct.toFixed(0)}% used</p>
+          </>
+        ) : (
+          <p className="text-gray-500 text-sm">No budget set. Click &quot;Set Budget&quot; to start tracking!</p>
+        )}
       </div>
 
       {/* Charts */}
@@ -97,7 +178,7 @@ export default function DashboardPage() {
               <XAxis dataKey="month" tick={{ fill: "#9ca3af", fontSize: 11 }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} />
               <Tooltip formatter={(v: any) => `${v.toLocaleString()} EGP`} contentStyle={{ background: "#111827", border: "none" }} />
-              <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="total" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -128,7 +209,7 @@ export default function DashboardPage() {
 function StatCard({ icon, label, value }: { icon: any; label: string; value: any }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center gap-4">
-      <div className="text-blue-400">{icon}</div>
+      <div className="text-violet-400">{icon}</div>
       <div>
         <p className="text-gray-400 text-xs">{label}</p>
         <p className="text-white font-bold text-lg">{value}</p>

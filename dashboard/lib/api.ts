@@ -24,10 +24,30 @@ async function fetchWithAuth(endpoint: string) {
   return res.json();
 }
 
+async function fetchWithAuthPost(endpoint: string, body: object) {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    removeToken();
+    window.location.href = "/";
+  }
+  return res.json();
+}
+
 export const api = {
   getSummary: () => fetchWithAuth("/expenses/summary"),
   getHistory: () => fetchWithAuth("/expenses/history"),
   getMonthlyTrend: () => fetchWithAuth("/expenses/monthly-trend"),
+  getBudget: () => fetchWithAuth("/budget"),
+  setBudget: (amount: number, currency: string = "EGP") =>
+    fetchWithAuthPost("/budget", { amount, currency }),
   telegramAuth: (data: object) =>
     fetch(`${API_URL}/auth/telegram`, {
       method: "POST",

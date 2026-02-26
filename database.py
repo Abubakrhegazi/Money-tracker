@@ -106,6 +106,24 @@ def get_monthly_summary(telegram_user_id: str):
         return total, breakdown, len(expenses)
     finally:
         session.close()
+def get_monthly_summary_sync(telegram_user_id: str):
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        from sqlalchemy import extract
+        expenses = session.query(Expense).filter(
+            Expense.telegram_user_id == telegram_user_id,
+            extract('month', Expense.created_at) == now.month,
+            extract('year', Expense.created_at) == now.year
+        ).all()
+        total = sum(e.amount for e in expenses)
+        breakdown = {}
+        for e in expenses:
+            cat = e.category or "other"
+            breakdown[cat] = breakdown.get(cat, 0) + e.amount
+        return total, breakdown, len(expenses)
+    finally:
+        session.close()
 def get_recent_expenses(telegram_user_id: str, limit: int = 10):
     session = Session()
     try:

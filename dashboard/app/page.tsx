@@ -18,8 +18,8 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-8">
       <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">💰 MoneyBot</h1>
-        <p className="text-gray-400">Track your spending with voice notes</p>
+        <h1 className="text-4xl font-bold text-white mb-2">✨ Aura</h1>
+        <p className="text-gray-400">Your personal spending tracker</p>
       </div>
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 w-80">
         <p className="text-gray-300 text-sm">Development Mode</p>

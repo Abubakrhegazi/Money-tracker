@@ -10,7 +10,7 @@ import hmac
 import os
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token, init_db
+from database import Session, Expense, get_monthly_summary, consume_login_token, init_db, set_budget, get_budget
 from sqlalchemy import extract
 
 load_dotenv()
@@ -148,6 +148,27 @@ async def monthly_trend(user=Depends(get_current_user)):
         return result
     finally:
         session.close()
+# ── Budget ────────────────────────────────────────────────────────────
+
+class BudgetBody(BaseModel):
+    amount: float
+    currency: str = "EGP"
+
+@app.get("/budget")
+async def get_user_budget(user=Depends(get_current_user)):
+    result = get_budget(user["sub"])
+    if result:
+        amount, currency = result
+        return {"amount": amount, "currency": currency}
+    return {"amount": None, "currency": "EGP"}
+
+@app.post("/budget")
+async def set_user_budget(body: BudgetBody, user=Depends(get_current_user)):
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Budget must be positive")
+    set_budget(user["sub"], body.amount, body.currency)
+    return {"amount": body.amount, "currency": body.currency}
+
 @app.get("/auth/test-token")
 async def test_token():
     """Remove this in production!"""
