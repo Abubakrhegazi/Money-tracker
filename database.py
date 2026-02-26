@@ -40,6 +40,15 @@ class LoginToken(Base):
     used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class Budget(Base):
+    __tablename__ = "budgets"
+
+    id = Column(Integer, primary_key=True)
+    telegram_user_id = Column(String, unique=True, nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    currency = Column(String, default="EGP")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 def init_db():
     try:
         Base.metadata.create_all(engine)
@@ -158,5 +167,36 @@ def consume_login_token(raw: str) -> str | None:
         token.used = True
         session.commit()
         return token.telegram_user_id
+    finally:
+        session.close()
+
+def set_budget(telegram_user_id: str, amount: float, currency: str = "EGP") -> None:
+    session = Session()
+    try:
+        existing = session.query(Budget).filter_by(telegram_user_id=telegram_user_id).first()
+        if existing:
+            existing.amount = amount
+            existing.currency = currency
+        else:
+            session.add(Budget(
+                telegram_user_id=telegram_user_id,
+                amount=amount,
+                currency=currency
+            ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def get_budget(telegram_user_id: str) -> tuple[float, str] | None:
+    """Returns (amount, currency) or None if no budget set"""
+    session = Session()
+    try:
+        budget = session.query(Budget).filter_by(telegram_user_id=telegram_user_id).first()
+        if budget:
+            return budget.amount, budget.currency
+        return None
     finally:
         session.close()

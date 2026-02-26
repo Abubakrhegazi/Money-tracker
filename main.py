@@ -1,10 +1,10 @@
 import os
 import json
 from groq import Groq
-from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, create_login_token, Session, Expense
+from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, create_login_token, Session, Expense, set_budget, get_budget
 from datetime import datetime
 
-FRONTEND_URL = "https://moneybot-beta.vercel.app/"
+FRONTEND_URL = "https://moneybot-beta.vercel.app"
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -276,6 +276,24 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*By Category:*\n{breakdown_text}"
     )
 
+    # Add budget info if set
+    budget_info = get_budget(user_id)
+    if budget_info:
+        budget_amount, currency = budget_info
+        remaining = budget_amount - total
+        pct_used = min(total / budget_amount * 100, 100) if budget_amount > 0 else 0
+        filled = int(pct_used / 10)
+        bar = "█" * filled + "░" * (10 - filled)
+
+        if remaining >= 0:
+            reply += f"\n🎯 *Budget:* {budget_amount:,.0f} {currency}\n"
+            reply += f"{bar} {pct_used:.0f}%\n"
+            reply += f"✅ Remaining: *{remaining:,.0f} {currency}*"
+        else:
+            reply += f"\n🎯 *Budget:* {budget_amount:,.0f} {currency}\n"
+            reply += f"{bar} {pct_used:.0f}%\n"
+            reply += f"🚨 Over budget by: *{abs(remaining):,.0f} {currency}*"
+
     await update.message.reply_text(reply, parse_mode="Markdown")
 
 def category_emoji(category: str) -> str:
@@ -400,6 +418,57 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = f"{FRONTEND_URL}/auth/telegram?t={raw}"
     await update.message.reply_text(f"📊 Open your dashboard:\n{link}")
 
+async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+
+    # If no arguments, show current budget
+    if not context.args:
+        budget_info = get_budget(user_id)
+        if budget_info:
+            amount, currency = budget_info
+            total, _, _ = get_monthly_summary(user_id)
+            remaining = amount - total
+            pct_used = min(total / amount * 100, 100) if amount > 0 else 0
+            filled = int(pct_used / 10)
+            bar = "█" * filled + "░" * (10 - filled)
+
+            status = f"✅ Remaining: *{remaining:,.0f} {currency}*" if remaining >= 0 else f"🚨 Over budget by: *{abs(remaining):,.0f} {currency}*"
+
+            await update.message.reply_text(
+                f"🎯 *Monthly Budget*\n\n"
+                f"Budget: *{amount:,.0f} {currency}*\n"
+                f"Spent: *{total:,.0f} {currency}*\n"
+                f"{bar} {pct_used:.0f}%\n\n"
+                f"{status}\n\n"
+                f"_To change: /budget \<amount\>_",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                "No budget set yet\!\n\n"
+                "Set one with: `/budget 5000`",
+                parse_mode="MarkdownV2"
+            )
+        return
+
+    # Parse the amount
+    try:
+        amount = float(context.args[0].replace(",", ""))
+        if amount <= 0:
+            raise ValueError("Must be positive")
+    except ValueError:
+        await update.message.reply_text("❌ Please provide a valid amount, e.g. `/budget 5000`", parse_mode="Markdown")
+        return
+
+    currency = context.args[1].upper() if len(context.args) > 1 else "EGP"
+    set_budget(user_id, amount, currency)
+
+    await update.message.reply_text(
+        f"✅ Monthly budget set to *{amount:,.0f} {currency}*\n\n"
+        f"I'll show your budget status in /summary",
+        parse_mode="Markdown"
+    )
+
 def main():
     init_db()  # creates the DB file and tables if they don't exist
     app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
@@ -408,6 +477,7 @@ def main():
     app.add_handler(CommandHandler("summary", summary_command)) 
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("dashboard", dashboard_command))
+    app.add_handler(CommandHandler("budget", budget_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(
