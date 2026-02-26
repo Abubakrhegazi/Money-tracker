@@ -440,12 +440,12 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Spent: *{total:,.0f} {currency}*\n"
                 f"{bar} {pct_used:.0f}%\n\n"
                 f"{status}\n\n"
-                f"_To change: /budget \<amount\>_",
+                f"_To change: /budget <amount>_"
                 parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                "No budget set yet\!\n\n"
+                "No budget set yet!\n\n"
                 "Set one with: `/budget 5000`",
                 parse_mode="MarkdownV2"
             )
@@ -481,11 +481,11 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Register in main():
-app.add_handler(CommandHandler("link", link_command))
 def main():
     init_db()  # creates the DB file and tables if they don't exist
     app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
+    app.add_handler(CommandHandler("link", link_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(CommandHandler("summary", summary_command)) 
     app.add_handler(CommandHandler("history", history_command))
