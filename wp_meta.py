@@ -153,16 +153,16 @@ def webhook():
                         "❌ Invalid or expired token. Send /link on Telegram to get a new one."
                     )
                 return jsonify({"status": "ok"}), 200
-                        # Regular expense text
-                        expense = extract_expense(body)
-                        expense["_transcript"] = body
-                        pending_expenses[from_number] = expense
-                        send_message(from_number,
-                            f"💰 {expense['amount']} {expense['currency']}\n"
-                            f"📂 {expense['category']}\n"
-                            f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
-                            f"Reply *yes* to save or *no* to cancel."
-                        )
+            # Regular expense text
+            expense = extract_expense(body)
+            expense["_transcript"] = body
+            pending_expenses[from_number] = expense
+            send_message(from_number,
+                f"💰 {expense['amount']} {expense['currency']}\n"
+                f"📂 {expense['category']}\n"
+                f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
+                f"Reply *yes* to save or *no* to cancel."
+            )
 
         # Handle voice note
         elif msg_type == "audio":
