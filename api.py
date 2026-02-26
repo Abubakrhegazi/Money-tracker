@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import os
 from pydantic import BaseModel
+import secrets
 from dotenv import load_dotenv
 from database import Session, Expense, get_monthly_summary, consume_login_token, init_db, set_budget, get_budget
 from sqlalchemy import extract
@@ -46,6 +47,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # ── Startup ──────────────────────────────────────────────────────────────
+whatsapp_tokens = {}
 
 @app.on_event("startup")
 def on_startup():
@@ -208,3 +210,24 @@ async def telegram_link_auth(body: TelegramLinkAuthBody):
 
     token = create_jwt(str(telegram_user_id), "")
     return {"token": token}
+@app.post("/auth/whatsapp-token")
+async def create_whatsapp_login(phone: str):
+    token = secrets.token_urlsafe(32)
+    whatsapp_tokens[token] = {
+        "phone": phone,
+        "expires": datetime.utcnow() + timedelta(minutes=10)
+    }
+    return {"token": token}
+
+@app.get("/auth/whatsapp")
+async def whatsapp_login(token: str):
+    data = whatsapp_tokens.get(token)
+    if not data:
+        raise HTTPException(status_code=401, detail="Invalid or expired link")
+    if datetime.utcnow() > data["expires"]:
+        whatsapp_tokens.pop(token, None)
+        raise HTTPException(status_code=401, detail="Link expired")
+    
+    whatsapp_tokens.pop(token, None)
+    jwt_token = create_jwt(data["phone"], data["phone"])
+    return {"token": jwt_token, "user_id": data["phone"]}

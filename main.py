@@ -468,7 +468,20 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"I'll show your budget status in /summary",
         parse_mode="Markdown"
     )
+async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    token = get_link_token(user_id)
+    
+    await update.message.reply_text(
+        f"📱 *Link your WhatsApp account*\n\n"
+        f"Send this message to your WhatsApp bot:\n\n"
+        f"`/link {token}`\n\n"
+        f"Token expires in 10 minutes.",
+        parse_mode="Markdown"
+    )
 
+# Register in main():
+app.add_handler(CommandHandler("link", link_command))
 def main():
     init_db()  # creates the DB file and tables if they don't exist
     app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()

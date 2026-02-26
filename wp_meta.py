@@ -3,8 +3,10 @@ import json
 import requests
 from flask import Flask, request, jsonify
 from groq import Groq
+import secrets
 from dotenv import load_dotenv
-from database import init_db, save_expense, get_monthly_summary_sync
+from database import init_db, save_expense, get_monthly_summary_sync, resolve_link_token, get_primary_id
+
 
 load_dotenv()
 
@@ -129,17 +131,38 @@ def webhook():
                         text += f"  {cat}: {amount:,.0f} EGP\n"
                     send_message(from_number, text)
                 return jsonify({"status": "ok"}), 200
-
-            # Regular expense text
-            expense = extract_expense(body)
-            expense["_transcript"] = body
-            pending_expenses[from_number] = expense
-            send_message(from_number,
-                f"💰 {expense['amount']} {expense['currency']}\n"
-                f"📂 {expense['category']}\n"
-                f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
-                f"Reply *yes* to save or *no* to cancel."
-            )
+            if body.lower() == "/login":
+                token = create_login_token(from_number)
+                dashboard_url = os.getenv("DASHBOARD_URL", "https://moneybot-beta.vercel.app")
+                send_message(from_number,
+                    f"🔐 Click to open your dashboard:\n\n"
+                    f"{dashboard_url}/auth/whatsapp?token={token}\n\n"
+                    f"Link expires in 10 minutes."
+                )
+                return jsonify({"status": "ok"}), 200
+            if body.lower().startswith("/link "):
+                token = body.split(" ", 1)[1].strip()
+                primary_id = resolve_link_token(token, from_number)
+                if primary_id:
+                    send_message(from_number,
+                        "✅ Accounts linked!\n\n"
+                        "Your WhatsApp and Telegram expenses now appear together on the dashboard."
+                    )
+                else:
+                    send_message(from_number,
+                        "❌ Invalid or expired token. Send /link on Telegram to get a new one."
+                    )
+                return jsonify({"status": "ok"}), 200
+                        # Regular expense text
+                        expense = extract_expense(body)
+                        expense["_transcript"] = body
+                        pending_expenses[from_number] = expense
+                        send_message(from_number,
+                            f"💰 {expense['amount']} {expense['currency']}\n"
+                            f"📂 {expense['category']}\n"
+                            f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
+                            f"Reply *yes* to save or *no* to cancel."
+                        )
 
         # Handle voice note
         elif msg_type == "audio":
@@ -170,6 +193,10 @@ def webhook():
 
     return jsonify({"status": "ok"}), 200
 
+def create_login_token(phone: str) -> str:
+    api_url = os.getenv("API_URL")
+    response = requests.post(f"{api_url}/auth/whatsapp-token?phone={phone}")
+    return response.json()["token"]
 
 if __name__ == "__main__":
     init_db()

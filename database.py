@@ -40,6 +40,14 @@ class LoginToken(Base):
     used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class UserLink(Base):
+    __tablename__ = "user_links"
+    id = Column(Integer, primary_key=True)
+    primary_id = Column(String, nullable=False)  # the main user_id
+    linked_id = Column(String, nullable=False)   # the secondary user_id
+    platform = Column(String)                     # "telegram" or "whatsapp"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Budget(Base):
     __tablename__ = "budgets"
 
@@ -57,10 +65,11 @@ def init_db():
         print("[WARNING] Tables will be created on first successful connection.")
 
 def save_expense(telegram_user_id: str, expense: dict, transcript: str):
+    primary_id = get_primary_id(telegram_user_id)  # resolve to primary
     session = Session()
     try:
         record = Expense(
-            telegram_user_id=telegram_user_id,
+            telegram_user_id=primary_id,
             amount=expense["amount"],
             currency=expense.get("currency", "EGP"),
             category=expense.get("category", "other"),
@@ -86,6 +95,7 @@ def get_expenses(telegram_user_id: str):
     finally:
         session.close()
 def get_monthly_summary(telegram_user_id: str):
+    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
     session = Session()
     try:
         now = datetime.utcnow()
@@ -107,6 +117,7 @@ def get_monthly_summary(telegram_user_id: str):
     finally:
         session.close()
 def get_monthly_summary_sync(telegram_user_id: str):
+    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
     session = Session()
     try:
         now = datetime.utcnow()
@@ -125,6 +136,7 @@ def get_monthly_summary_sync(telegram_user_id: str):
     finally:
         session.close()
 def get_recent_expenses(telegram_user_id: str, limit: int = 10):
+    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
     session = Session()
     try:
         return session.query(Expense).filter_by(
@@ -134,6 +146,7 @@ def get_recent_expenses(telegram_user_id: str, limit: int = 10):
         session.close()
 
 def delete_expense(telegram_user_id: str, expense_id: int) -> bool:
+    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
     session = Session()
     try:
         expense = session.query(Expense).filter_by(
@@ -216,5 +229,70 @@ def get_budget(telegram_user_id: str) -> tuple[float, str] | None:
         if budget:
             return budget.amount, budget.currency
         return None
+    finally:
+        session.close()
+def get_primary_id(user_id: str) -> str:
+    """Resolves any linked ID to the primary user ID."""
+    session = Session()
+    try:
+        link = session.query(UserLink).filter_by(linked_id=user_id).first()
+        return link.primary_id if link else user_id
+    finally:
+        session.close()
+
+def link_accounts(primary_id: str, linked_id: str, platform: str):
+    session = Session()
+    try:
+        existing = session.query(UserLink).filter_by(linked_id=linked_id).first()
+        if existing:
+            existing.primary_id = primary_id
+        else:
+            session.add(UserLink(
+                primary_id=primary_id,
+                linked_id=linked_id,
+                platform=platform
+            ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def get_link_token(primary_id: str) -> str:
+    """Store a temp token for linking."""
+    import secrets
+    token = secrets.token_urlsafe(16)
+    session = Session()
+    try:
+        # reuse UserLink table with a temp marker
+        session.add(UserLink(
+            primary_id=primary_id,
+            linked_id=f"pending_{token}",
+            platform="pending"
+        ))
+        session.commit()
+        return token
+    finally:
+        session.close()
+
+def resolve_link_token(token: str, whatsapp_id: str) -> str | None:
+    """Links WhatsApp ID to Telegram ID using token. Returns primary_id."""
+    session = Session()
+    try:
+        link = session.query(UserLink).filter_by(
+            linked_id=f"pending_{token}"
+        ).first()
+        if not link:
+            return None
+        primary_id = link.primary_id
+        # replace pending with real whatsapp id
+        link.linked_id = whatsapp_id
+        link.platform = "whatsapp"
+        session.commit()
+        return primary_id
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
