@@ -8,3 +8,4 @@ requests
 psycopg2-binary
 python-jose[cryptography]
 alembic
+Flask
