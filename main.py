@@ -440,7 +440,7 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Spent: *{total:,.0f} {currency}*\n"
                 f"{bar} {pct_used:.0f}%\n\n"
                 f"{status}\n\n"
-                f"_To change: /budget <amount>_"
+                f"_To change: /budget <amount>_",
                 parse_mode="Markdown"
             )
         else:
