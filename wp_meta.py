@@ -196,7 +196,11 @@ def webhook():
 def create_login_token(phone: str) -> str:
     api_url = os.getenv("API_URL")
     response = requests.post(f"{api_url}/auth/whatsapp-token?phone={phone}")
-    return response.json()["token"]
+    data = response.json()
+    if "token" not in data:
+        print(f"[ERROR] API response: {response.status_code} {data}")
+        raise Exception(f"Failed to create token: {data}")
+    return data["token"]
 
 if __name__ == "__main__":
     init_db()
