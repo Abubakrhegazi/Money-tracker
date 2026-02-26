@@ -4,6 +4,7 @@ python-dotenv
 fastapi
 uvicorn
 sqlalchemy
+requests
 psycopg2-binary
 python-jose[cryptography]
 alembic

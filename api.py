@@ -94,11 +94,27 @@ async def telegram_auth(data: dict):
 @app.get("/expenses/summary")
 async def monthly_summary(user=Depends(get_current_user)):
     total, breakdown, count = get_monthly_summary(user["sub"])
+    # Get last month total for trend comparison
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        last_month = (now.month - 2) % 12 + 1
+        last_year = now.year if now.month > 1 else now.year - 1
+        last_expenses = session.query(Expense).filter(
+            Expense.telegram_user_id == user["sub"],
+            extract('month', Expense.created_at) == last_month,
+            extract('year', Expense.created_at) == last_year
+        ).all()
+        last_month_total = sum(e.amount for e in last_expenses)
+    finally:
+        session.close()
     return {
         "total": total,
         "count": count,
         "breakdown": breakdown,
-        "month": datetime.utcnow().strftime("%B %Y")
+        "month": datetime.utcnow().strftime("%B %Y"),
+        "last_month_total": last_month_total,
+        "days_in_month": now.day
     }
 
 @app.get("/expenses/history")
