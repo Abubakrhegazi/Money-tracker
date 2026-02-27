@@ -1,11 +1,22 @@
 import os
+import sys
 import json
+import logging
+import traceback
 import requests
 from flask import Flask, request, jsonify
 from groq import Groq
 import secrets
 from dotenv import load_dotenv
 from database import init_db, save_expense, get_monthly_summary_sync, resolve_link_token, get_primary_id
+
+# Configure logging so errors appear in Railway
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stderr
+)
+logger = logging.getLogger(__name__)
 
 
 load_dotenv()
@@ -23,7 +34,8 @@ pending_expenses = {}
 
 
 def send_message(to: str, body: str):
-    requests.post(API_URL, headers={
+    logger.info(f"Sending message to {to}: {body[:50]}...")
+    resp = requests.post(API_URL, headers={
         "Authorization": f"Bearer {META_TOKEN}",
         "Content-Type": "application/json"
     }, json={
@@ -32,6 +44,10 @@ def send_message(to: str, body: str):
         "type": "text",
         "text": {"body": body}
     })
+    if resp.status_code != 200:
+        logger.error(f"Meta API error {resp.status_code}: {resp.text}")
+    else:
+        logger.info(f"Message sent successfully: {resp.json()}")
 
 
 def extract_expense(transcript: str) -> dict:
@@ -86,9 +102,11 @@ def verify_webhook():
 
 @app.route("/whatsapp", methods=["POST"])
 def webhook():
+    logger.info("Received webhook POST")
     data = request.json
 
     try:
+        logger.info(f"Webhook payload: {json.dumps(data, default=str)[:500]}")
         entry = data["entry"][0]
         changes = entry["changes"][0]
         value = changes["value"]
@@ -189,7 +207,8 @@ def webhook():
             )
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Webhook error: {e}")
+        logger.error(traceback.format_exc())
 
     return jsonify({"status": "ok"}), 200
 
