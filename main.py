@@ -277,22 +277,17 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Add budget info if set
-    budget_info = get_budget(user_id)
-    if budget_info:
-        budget_amount, currency = budget_info
-        remaining = budget_amount - total
-        pct_used = min(total / budget_amount * 100, 100) if budget_amount > 0 else 0
-        filled = int(pct_used / 10)
-        bar = "█" * filled + "░" * (10 - filled)
-
-        if remaining >= 0:
-            reply += f"\n🎯 *Budget:* {budget_amount:,.0f} {currency}\n"
-            reply += f"{bar} {pct_used:.0f}%\n"
-            reply += f"✅ Remaining: *{remaining:,.0f} {currency}*"
-        else:
-            reply += f"\n🎯 *Budget:* {budget_amount:,.0f} {currency}\n"
-            reply += f"{bar} {pct_used:.0f}%\n"
-            reply += f"🚨 Over budget by: *{abs(remaining):,.0f} {currency}*"
+    budgets = get_budget(user_id)
+    if budgets:
+        reply += "\n🎯 *Budgets:*\n"
+        for cat, budget_amount in budgets.items():
+            cat_spent = breakdown.get(cat, 0)
+            remaining = budget_amount - cat_spent
+            pct_used = min(cat_spent / budget_amount * 100, 100) if budget_amount > 0 else 0
+            filled = int(pct_used / 10)
+            bar = "█" * filled + "░" * (10 - filled)
+            indicator = "🟢" if pct_used < 80 else ("🟡" if pct_used < 100 else "🔴")
+            reply += f"{indicator} {cat}: {cat_spent:,.0f}/{budget_amount:,.0f} EGP {bar} {pct_used:.0f}%\n"
 
     await update.message.reply_text(reply, parse_mode="Markdown")
 
@@ -421,50 +416,50 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
-    # If no arguments, show current budget
+    # If no arguments, show current budgets
     if not context.args:
-        budget_info = get_budget(user_id)
-        if budget_info:
-            amount, currency = budget_info
-            total, _, _ = get_monthly_summary(user_id)
-            remaining = amount - total
-            pct_used = min(total / amount * 100, 100) if amount > 0 else 0
-            filled = int(pct_used / 10)
-            bar = "█" * filled + "░" * (10 - filled)
-
-            status = f"✅ Remaining: *{remaining:,.0f} {currency}*" if remaining >= 0 else f"🚨 Over budget by: *{abs(remaining):,.0f} {currency}*"
-
-            await update.message.reply_text(
-                f"🎯 *Monthly Budget*\n\n"
-                f"Budget: *{amount:,.0f} {currency}*\n"
-                f"Spent: *{total:,.0f} {currency}*\n"
-                f"{bar} {pct_used:.0f}%\n\n"
-                f"{status}\n\n"
-                f"_To change: /budget <amount>_",
-                parse_mode="Markdown"
-            )
+        budgets = get_budget(user_id)
+        if budgets:
+            total, breakdown, _ = get_monthly_summary(user_id)
+            reply = "🎯 *Monthly Budgets*\n\n"
+            for cat, amount in budgets.items():
+                spent = breakdown.get(cat, 0)
+                remaining = amount - spent
+                pct_used = min(spent / amount * 100, 100) if amount > 0 else 0
+                filled = int(pct_used / 10)
+                bar = "█" * filled + "░" * (10 - filled)
+                status = f"✅ {remaining:,.0f} left" if remaining >= 0 else f"🚨 Over by {abs(remaining):,.0f}"
+                reply += f"{cat}: *{amount:,.0f} EGP*\n{bar} {pct_used:.0f}% | {status}\n\n"
+            reply += "_To change: /budget <category> <amount>_"
+            await update.message.reply_text(reply, parse_mode="Markdown")
         else:
             await update.message.reply_text(
-                "No budget set yet!\n\n"
-                "Set one with: `/budget 5000`",
-                parse_mode="MarkdownV2"
+                "No budgets set yet!\n\n"
+                "Set one with: `/budget food 5000`",
+                parse_mode="Markdown"
             )
         return
 
-    # Parse the amount
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage: `/budget <category> <amount>`\nExample: `/budget food 3000`",
+            parse_mode="Markdown"
+        )
+        return
+
+    category = context.args[0].lower()
     try:
-        amount = float(context.args[0].replace(",", ""))
+        amount = float(context.args[1].replace(",", ""))
         if amount <= 0:
             raise ValueError("Must be positive")
     except ValueError:
-        await update.message.reply_text("❌ Please provide a valid amount, e.g. `/budget 5000`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a valid amount, e.g. `/budget food 5000`", parse_mode="Markdown")
         return
 
-    currency = context.args[1].upper() if len(context.args) > 1 else "EGP"
-    set_budget(user_id, amount, currency)
+    set_budget(user_id, category, amount)
 
     await update.message.reply_text(
-        f"✅ Monthly budget set to *{amount:,.0f} {currency}*\n\n"
+        f"✅ Budget for *{category}* set to *{amount:,.0f} EGP*\n\n"
         f"I'll show your budget status in /summary",
         parse_mode="Markdown"
     )

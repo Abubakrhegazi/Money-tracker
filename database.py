@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
@@ -50,9 +50,11 @@ class UserLink(Base):
 
 class Budget(Base):
     __tablename__ = "budgets"
+    __table_args__ = (UniqueConstraint('telegram_user_id', 'category', name='uq_user_category'),)
 
     id = Column(Integer, primary_key=True)
-    telegram_user_id = Column(String, unique=True, nullable=False, index=True)
+    telegram_user_id = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=False)
     amount = Column(Float, nullable=False)
     currency = Column(String, default="EGP")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -201,16 +203,20 @@ def consume_login_token(raw: str) -> str | None:
     finally:
         session.close()
 
-def set_budget(telegram_user_id: str, amount: float, currency: str = "EGP") -> None:
+def set_budget(telegram_user_id: str, category: str, amount: float, currency: str = "EGP") -> None:
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
-        existing = session.query(Budget).filter_by(telegram_user_id=telegram_user_id).first()
+        existing = session.query(Budget).filter_by(
+            telegram_user_id=telegram_user_id, category=category
+        ).first()
         if existing:
             existing.amount = amount
             existing.currency = currency
         else:
             session.add(Budget(
                 telegram_user_id=telegram_user_id,
+                category=category,
                 amount=amount,
                 currency=currency
             ))
@@ -221,14 +227,48 @@ def set_budget(telegram_user_id: str, amount: float, currency: str = "EGP") -> N
     finally:
         session.close()
 
-def get_budget(telegram_user_id: str) -> tuple[float, str] | None:
-    """Returns (amount, currency) or None if no budget set"""
+def get_budget(telegram_user_id: str) -> dict:
+    """Returns {category: amount} dict of all budgets for this user."""
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
-        budget = session.query(Budget).filter_by(telegram_user_id=telegram_user_id).first()
-        if budget:
-            return budget.amount, budget.currency
-        return None
+        budgets = session.query(Budget).filter_by(telegram_user_id=telegram_user_id).all()
+        return {b.category: b.amount for b in budgets}
+    finally:
+        session.close()
+
+def delete_budget(telegram_user_id: str, category: str) -> bool:
+    """Removes a per-category budget. Returns True if deleted."""
+    telegram_user_id = get_primary_id(telegram_user_id)
+    session = Session()
+    try:
+        budget = session.query(Budget).filter_by(
+            telegram_user_id=telegram_user_id, category=category
+        ).first()
+        if not budget:
+            return False
+        session.delete(budget)
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def get_category_spending_this_month(telegram_user_id: str, category: str) -> float:
+    """Returns total spending for a specific category this month."""
+    telegram_user_id = get_primary_id(telegram_user_id)
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        expenses = session.query(Expense).filter(
+            Expense.telegram_user_id == telegram_user_id,
+            Expense.category == category,
+            extract('month', Expense.created_at) == now.month,
+            extract('year', Expense.created_at) == now.year
+        ).all()
+        return sum(e.amount for e in expenses)
     finally:
         session.close()
 def get_primary_id(user_id: str) -> str:
