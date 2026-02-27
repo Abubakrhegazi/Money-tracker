@@ -61,6 +61,15 @@ class Budget(Base):
 
 def init_db():
     try:
+        # Migrate old budgets table (no category column) → new per-category schema
+        from sqlalchemy import inspect, text
+        insp = inspect(engine)
+        if insp.has_table("budgets"):
+            cols = [c["name"] for c in insp.get_columns("budgets")]
+            if "category" not in cols:
+                print("[MIGRATION] Dropping old budgets table (adding category column)")
+                with engine.begin() as conn:
+                    conn.execute(text("DROP TABLE budgets"))
         Base.metadata.create_all(engine)
     except Exception as e:
         print(f"[WARNING] Could not connect to database during init: {e}")
