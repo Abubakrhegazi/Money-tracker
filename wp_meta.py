@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from database import (
     init_db, save_expense, get_monthly_summary_sync,
     resolve_link_token, get_primary_id, get_recent_expenses,
-    delete_expense, set_budget, get_budgets,
+    delete_expense, set_budget, get_budget,
     get_category_spending_this_month, Session, Expense
 )
 
@@ -130,7 +130,7 @@ def create_login_token(phone: str) -> str:
 
 
 def check_budget_alert(user_id: str, category: str, new_amount: float) -> str:
-    budgets = get_budgets(user_id)
+    budgets = get_budget(user_id)
     if category not in budgets:
         return ""
     budget = budgets[category]
@@ -168,7 +168,7 @@ def handle_help(phone: str):
 def handle_summary(phone: str):
     user_id = get_primary_id(phone)
     total, breakdown, count = get_monthly_summary_sync(user_id)
-    budgets = get_budgets(user_id)
+    budgets = get_budget(user_id)
 
     if count == 0:
         send_message(phone, "No expenses recorded this month yet!\n\nSend a voice note or type an expense to get started.")
@@ -263,7 +263,7 @@ def handle_edit_start(phone: str, args: str):
 
 def handle_budget_view(phone: str):
     user_id = get_primary_id(phone)
-    budgets = get_budgets(user_id)
+    budgets = get_budget(user_id)
 
     if not budgets:
         send_message(phone,
