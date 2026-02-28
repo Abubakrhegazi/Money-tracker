@@ -172,14 +172,14 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         messages=[
             {
                 "role": "system",
-                "content": """You are correcting an expense entry.
-                Apply the user's correction to the existing expense JSON and return the updated JSON only.
+                "content": """You are correcting a financial entry (expense or income).
+                Apply the user's correction to the existing JSON and return the updated JSON only.
                 Keep all fields that aren't being corrected unchanged.
-                Return ONLY valid JSON with fields: amount, currency, category, merchant, date."""
+                Return ONLY valid JSON with fields: type, amount, currency, category, merchant, date."""
             },
             {
                 "role": "user",
-                "content": f"Existing expense: {json.dumps(original_expense)}\nCorrection: {correction}"
+                "content": f"Existing entry: {json.dumps(original_expense)}\nCorrection: {correction}"
             }
         ],
         response_format={"type": "json_object"}
@@ -200,56 +200,28 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 record.category = updated_expense.get("category", "other")
                 record.merchant = updated_expense.get("merchant")
                 record.date = updated_expense.get("date", "today")
+                record.entry_type = updated_expense.get("type", record.entry_type or "expense")
                 session.commit()
         finally:
             session.close()
 
         context.user_data.pop("editing_expense_id", None)
+        etype = updated_expense.get("type", "expense")
+        icon = "📥" if etype == "income" else "📤"
         await update.message.reply_text(
-            f"✅ Expense #{editing_id} updated!\n\n"
+            f"✅ Entry #{editing_id} updated!\n\n"
+            f"{icon} {etype.upper()}\n"
             f"💰 {updated_expense['amount']:,.0f} {updated_expense.get('currency', 'EGP')} — {updated_expense.get('category')}\n"
             f"🏪 {updated_expense.get('merchant') or 'N/A'}"
         )
     else:
-        # New expense pending confirmation
+        # New entry pending confirmation
         await update.message.reply_text(
-            "Here's the updated expense:\n\n" +
+            "Here's the updated entry:\n\n" +
             format_expense_message(updated_expense, transcript),
             parse_mode="Markdown",
             reply_markup=confirm_keyboard()
         )
-    correction = update.message.text
-    original_expense = context.user_data.get("pending_expense", {})
-
-    # Ask LLM to apply the correction
-    response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {
-                "role": "system",
-                "content": """You are correcting an expense entry. 
-Apply the user's correction to the existing expense JSON and return the updated JSON only.
-Keep all fields that aren't being corrected unchanged.
-Return ONLY valid JSON with fields: amount, currency, category, merchant, date."""
-            },
-            {
-                "role": "user",
-                "content": f"Existing expense: {json.dumps(original_expense)}\nCorrection: {correction}"
-            }
-        ],
-        response_format={"type": "json_object"}
-    )
-
-    updated_expense = json.loads(response.choices[0].message.content)
-    context.user_data["pending_expense"] = updated_expense
-    transcript = context.user_data.get("transcript", "")
-
-    await update.message.reply_text(
-        "Here's the updated expense:\n\n" +
-        format_expense_message(updated_expense, transcript),
-        parse_mode="Markdown",
-        reply_markup=confirm_keyboard()
-    )
 
 async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
