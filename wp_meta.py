@@ -38,14 +38,20 @@ user_context = {}          # {phone: {extra data}}
 
 CATEGORY_EMOJI = {
     "food": "🍔", "transport": "🚗", "shopping": "🛍️",
-    "bills": "📄", "entertainment": "🎬", "health": "💊", "other": "📦"
+    "bills": "📄", "entertainment": "🎬", "health": "💊", "other": "📦",
+    # Income categories
+    "salary": "💵", "freelance": "💻", "gift": "🎁", "refund": "🔄", "investment": "📈", "other_income": "💰"
 }
 
-CATEGORIES = list(CATEGORY_EMOJI.keys())
+CATEGORIES = ["food", "transport", "shopping", "bills", "entertainment", "health", "other"]
+INCOME_CATEGORIES = ["salary", "freelance", "gift", "refund", "investment", "other_income"]
 
 
 def cat_emoji(category: str) -> str:
     return CATEGORY_EMOJI.get(category, "📦")
+
+def type_emoji(entry_type: str) -> str:
+    return "📥" if entry_type == "income" else "📤"
 
 
 # ── Messaging ─────────────────────────────────────────────────────────────────
@@ -66,22 +72,29 @@ def send_message(to: str, body: str):
 
 # ── AI helpers ────────────────────────────────────────────────────────────────
 
-def extract_expense(transcript: str) -> dict:
+def extract_transaction(transcript: str) -> dict:
     response = groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{
             "role": "system",
-            "content": """Extract expense data from Arabic or English text.
+            "content": """Extract financial transaction data from Arabic or English text.
+Determine if this is an INCOME or EXPENSE.
+
+INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
+EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
+
 Return ONLY this exact JSON:
 {
+  "type": "income" or "expense",
   "amount": <number only>,
   "currency": <"EGP" if not mentioned>,
-  "category": <food|transport|shopping|bills|entertainment|health|other>,
-  "merchant": <string or null>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
+             <for income: salary|freelance|gift|refund|investment|other_income>,
+  "merchant": <string or null (for income, this is the source e.g. "company name")>,
   "date": <"today" if not mentioned>
 }
 Arabic numbers: الف=1000, مية=100, combinations add together.
-If the text does not describe an expense, return {"error": "not_an_expense"}"""
+If the text does not describe a financial transaction, return {"error": "not_a_transaction"}"""
         }, {"role": "user", "content": transcript}],
         response_format={"type": "json_object"}
     )
@@ -94,8 +107,8 @@ def apply_correction(original: dict, correction: str) -> dict:
         messages=[
             {
                 "role": "system",
-                "content": """Apply the user's correction to the expense JSON and return updated JSON only.
-Keep unchanged fields. Return ONLY valid JSON: amount, currency, category, merchant, date."""
+                "content": """Apply the user's correction to the transaction JSON and return updated JSON only.
+Keep unchanged fields. Return ONLY valid JSON: type, amount, currency, category, merchant, date."""
             },
             {
                 "role": "user",
@@ -150,10 +163,10 @@ def check_budget_alert(user_id: str, category: str, new_amount: float) -> str:
 def handle_help(phone: str):
     send_message(phone,
         "💰 *MoneyBot Commands*\n\n"
-        "Just send a voice note or type an expense to track it!\n\n"
+        "Just send a voice note or type to track expenses & income!\n\n"
         "📋 *Commands:*\n"
-        "/summary — this month's spending\n"
-        "/history — last 10 expenses\n"
+        "/summary — this month's spending & income\n"
+        "/history — last 10 transactions\n"
         "/budget — view & set budgets\n"
         "/login — open dashboard\n"
         "/link <token> — link Telegram account\n"
@@ -161,34 +174,42 @@ def handle_help(phone: str):
         "💡 *Examples:*\n"
         "• 'spent 150 on lunch'\n"
         "• 'مية وخمسين على أكل'\n"
+        "• 'received 5000 salary'\n"
+        "• 'استلمت مرتبي 8000'\n"
         "• Send a voice note 🎤"
     )
 
 
 def handle_summary(phone: str):
     user_id = get_primary_id(phone)
-    total, breakdown, count = get_monthly_summary_sync(user_id)
+    expense_total, breakdown, count, income_total = get_monthly_summary_sync(user_id)
     budgets = get_budget(user_id)
 
     if count == 0:
-        send_message(phone, "No expenses recorded this month yet!\n\nSend a voice note or type an expense to get started.")
+        send_message(phone, "No transactions recorded this month yet!\n\nSend a voice note or type an expense/income to get started.")
         return
 
     from datetime import datetime
-    text = f"📊 Monthly Summary — {datetime.utcnow().strftime('%B %Y')}\n"
-    text += f"💰 Total: {total:,.0f} EGP\n"
-    text += f"🧾 Transactions: {count}\n\n"
-    text += "By Category:\n"
+    net = income_total - expense_total
+    net_emoji = "🟢" if net >= 0 else "�"
 
-    for cat, amount in sorted(breakdown.items(), key=lambda x: x[1], reverse=True):
-        pct = (amount / total) * 100
-        line = f"  {cat_emoji(cat)} {cat}: {amount:,.0f} EGP ({pct:.0f}%)"
-        if cat in budgets:
-            budget = budgets[cat]
-            spent_pct = (amount / budget) * 100
-            indicator = "🟢" if spent_pct < 80 else ("🟡" if spent_pct < 100 else "🔴")
-            line += f" {indicator} of {budget:,.0f}"
-        text += line + "\n"
+    text = f"�📊 Monthly Summary — {datetime.utcnow().strftime('%B %Y')}\n\n"
+    text += f"� Income: {income_total:,.0f} EGP\n"
+    text += f"📤 Expenses: {expense_total:,.0f} EGP\n"
+    text += f"{net_emoji} Net: {net:+,.0f} EGP\n"
+    text += f"� Transactions: {count}\n"
+
+    if breakdown:
+        text += "\nExpenses by Category:\n"
+        for cat, amount in sorted(breakdown.items(), key=lambda x: x[1], reverse=True):
+            pct = (amount / expense_total) * 100 if expense_total > 0 else 0
+            line = f"  {cat_emoji(cat)} {cat}: {amount:,.0f} EGP ({pct:.0f}%)"
+            if cat in budgets:
+                budget = budgets[cat]
+                spent_pct = (amount / budget) * 100
+                indicator = "🟢" if spent_pct < 80 else ("🟡" if spent_pct < 100 else "🔴")
+                line += f" {indicator} of {budget:,.0f}"
+            text += line + "\n"
 
     send_message(phone, text)
 
@@ -198,13 +219,15 @@ def handle_history(phone: str):
     expenses = get_recent_expenses(user_id, limit=10)
 
     if not expenses:
-        send_message(phone, "No expenses recorded yet!")
+        send_message(phone, "No transactions recorded yet!")
         return
 
-    text = "🧾 Last 10 Expenses:\n\n"
+    text = "� Last 10 Transactions:\n\n"
     for e in expenses:
         merchant = e.merchant or "N/A"
-        text += (f"#{e.id} {cat_emoji(e.category)} {e.amount:,.0f} {e.currency} "
+        etype = e.entry_type or "expense"
+        icon = "📥" if etype == "income" else "📤"
+        text += (f"#{e.id} {icon} {cat_emoji(e.category)} {e.amount:,.0f} {e.currency} "
                  f"— {e.category} | {merchant} | {e.created_at.strftime('%d %b')}\n")
 
     text += "\nTo delete: /delete <id>  (e.g. /delete 42)\n"
@@ -367,19 +390,21 @@ def webhook():
             )
             audio_url = url_response.json()["url"]
             transcript = transcribe_audio(audio_url)
-            expense = extract_expense(transcript)
+            txn = extract_transaction(transcript)
 
-            if "error" in expense:
-                send_message(from_number, f"🎤 Heard: {transcript}\n\nI couldn't identify an expense. Try again!")
+            if "error" in txn:
+                send_message(from_number, f"🎤 Heard: {transcript}\n\nI couldn't identify a transaction. Try again!")
                 return jsonify({"status": "ok"}), 200
 
-            expense["_transcript"] = transcript
-            pending_expenses[from_number] = expense
+            txn["_transcript"] = transcript
+            pending_expenses[from_number] = txn
+            etype = txn.get("type", "expense")
             send_message(from_number,
                 f"🎤 Heard: {transcript}\n\n"
-                f"💰 {expense['amount']} {expense['currency']}\n"
-                f"📂 {expense['category']}\n"
-                f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
+                f"{type_emoji(etype)} {etype.upper()}\n"
+                f"💰 {txn['amount']} {txn['currency']}\n"
+                f"📂 {txn['category']}\n"
+                f"🏪 {txn.get('merchant') or 'N/A'}\n\n"
                 f"Reply yes to save, no to cancel, or tell me what to correct."
             )
             return jsonify({"status": "ok"}), 200
@@ -417,8 +442,10 @@ def webhook():
 
             user_states.pop(from_number, None)
             user_context.pop(from_number, None)
+            etype = updated.get("type", "expense")
             send_message(from_number,
-                f"✅ Expense #{editing_id} updated!\n\n"
+                f"✅ Entry #{editing_id} updated!\n\n"
+                f"{type_emoji(etype)} {etype.upper()}\n"
                 f"💰 {updated['amount']:,.0f} {updated.get('currency','EGP')} — {updated.get('category')}\n"
                 f"🏪 {updated.get('merchant') or 'N/A'}"
             )
@@ -430,9 +457,13 @@ def webhook():
                 expense = pending_expenses.pop(from_number)
                 user_id = get_primary_id(from_number)
                 save_expense(user_id, expense, expense.get("_transcript", ""))
-                alert = check_budget_alert(user_id, expense.get("category", "other"), expense["amount"])
+                etype = expense.get("type", "expense")
+                alert = ""
+                if etype == "expense":
+                    alert = check_budget_alert(user_id, expense.get("category", "other"), expense["amount"])
                 send_message(from_number,
                     f"💾 Saved!\n"
+                    f"{type_emoji(etype)} {etype.upper()}\n"
                     f"💰 {expense['amount']} {expense['currency']} — {expense['category']}\n"
                     f"🏪 {expense.get('merchant') or 'N/A'}"
                     + alert
@@ -447,8 +478,10 @@ def webhook():
                 original = pending_expenses[from_number]
                 updated = apply_correction(original, body)
                 pending_expenses[from_number] = {**updated, "_transcript": original.get("_transcript", "")}
+                etype = updated.get("type", "expense")
                 send_message(from_number,
                     f"Updated!\n\n"
+                    f"{type_emoji(etype)} {etype.upper()}\n"
                     f"💰 {updated['amount']} {updated['currency']}\n"
                     f"📂 {updated['category']}\n"
                     f"🏪 {updated.get('merchant') or 'N/A'}\n\n"
@@ -506,21 +539,23 @@ def webhook():
             send_message(from_number, "Unknown command. Send /help to see all commands.")
 
         else:
-            # Regular text — try to parse as expense
-            expense = extract_expense(body)
-            if "error" in expense:
+            # Regular text — try to parse as transaction
+            txn = extract_transaction(body)
+            if "error" in txn:
                 send_message(from_number,
-                    "I didn't recognize that as an expense.\n\n"
-                    "Try: 'spent 150 on lunch' or send a voice note 🎤\n"
+                    "I didn't recognize that as an expense or income.\n\n"
+                    "Try: 'spent 150 on lunch' or 'received 5000 salary'\n"
                     "Send /help for all commands."
                 )
             else:
-                expense["_transcript"] = body
-                pending_expenses[from_number] = expense
+                txn["_transcript"] = body
+                pending_expenses[from_number] = txn
+                etype = txn.get("type", "expense")
                 send_message(from_number,
-                    f"💰 {expense['amount']} {expense['currency']}\n"
-                    f"📂 {expense['category']}\n"
-                    f"🏪 {expense.get('merchant') or 'N/A'}\n\n"
+                    f"{type_emoji(etype)} {etype.upper()}\n"
+                    f"💰 {txn['amount']} {txn['currency']}\n"
+                    f"📂 {txn['category']}\n"
+                    f"🏪 {txn.get('merchant') or 'N/A'}\n\n"
                     f"Reply yes to save, no to cancel, or tell me what to correct."
                 )
 

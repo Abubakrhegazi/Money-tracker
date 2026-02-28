@@ -94,7 +94,7 @@ async def telegram_auth(data: dict):
 
 @app.get("/expenses/summary")
 async def monthly_summary(user=Depends(get_current_user)):
-    total, breakdown, count = get_monthly_summary(user["sub"])
+    expense_total, breakdown, count, income_total = get_monthly_summary(user["sub"])
     # Get last month total for trend comparison
     session = Session()
     try:
@@ -106,11 +106,12 @@ async def monthly_summary(user=Depends(get_current_user)):
             extract('month', Expense.created_at) == last_month,
             extract('year', Expense.created_at) == last_year
         ).all()
-        last_month_total = sum(e.amount for e in last_expenses)
+        last_month_total = sum(e.amount for e in last_expenses if (e.entry_type or "expense") == "expense")
     finally:
         session.close()
     return {
-        "total": total,
+        "total": expense_total,
+        "income_total": income_total,
         "count": count,
         "breakdown": breakdown,
         "month": datetime.utcnow().strftime("%B %Y"),
@@ -135,6 +136,7 @@ async def expense_history(user=Depends(get_current_user)):
                 "merchant": e.merchant,
                 "date": e.date,
                 "transcript": e.transcript,
+                "entry_type": e.entry_type or "expense",
                 "created_at": e.created_at.isoformat()
             }
             for e in expenses
@@ -168,23 +170,21 @@ async def monthly_trend(user=Depends(get_current_user)):
 # ── Budget ────────────────────────────────────────────────────────────
 
 class BudgetBody(BaseModel):
+    category: str
     amount: float
     currency: str = "EGP"
 
 @app.get("/budget")
 async def get_user_budget(user=Depends(get_current_user)):
     result = get_budget(user["sub"])
-    if result:
-        amount, currency = result
-        return {"amount": amount, "currency": currency}
-    return {"amount": None, "currency": "EGP"}
+    return result  # returns {category: amount} dict
 
 @app.post("/budget")
 async def set_user_budget(body: BudgetBody, user=Depends(get_current_user)):
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Budget must be positive")
-    set_budget(user["sub"], body.amount, body.currency)
-    return {"amount": body.amount, "currency": body.currency}
+    set_budget(user["sub"], body.category, body.amount, body.currency)
+    return {"category": body.category, "amount": body.amount, "currency": body.currency}
 
 @app.get("/auth/test-token")
 async def test_token():

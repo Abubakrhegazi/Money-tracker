@@ -27,7 +27,8 @@ class Expense(Base):
     category = Column(String)
     merchant = Column(String, nullable=True)
     date = Column(String)
-    transcript = Column(String)  # raw voice transcript, useful for debugging
+    transcript = Column(String)
+    entry_type = Column(String, default="expense")  # "expense" or "income"
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LoginToken(Base):
@@ -61,22 +62,29 @@ class Budget(Base):
 
 def init_db():
     try:
-        # Migrate old budgets table (no category column) → new per-category schema
         from sqlalchemy import inspect, text
         insp = inspect(engine)
+        # Migrate old budgets table (no category column) → new per-category schema
         if insp.has_table("budgets"):
             cols = [c["name"] for c in insp.get_columns("budgets")]
             if "category" not in cols:
                 print("[MIGRATION] Dropping old budgets table (adding category column)")
                 with engine.begin() as conn:
                     conn.execute(text("DROP TABLE budgets"))
+        # Add entry_type column to expenses if missing
+        if insp.has_table("expenses"):
+            cols = [c["name"] for c in insp.get_columns("expenses")]
+            if "entry_type" not in cols:
+                print("[MIGRATION] Adding entry_type column to expenses")
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE expenses ADD COLUMN entry_type VARCHAR DEFAULT 'expense'"))
         Base.metadata.create_all(engine)
     except Exception as e:
         print(f"[WARNING] Could not connect to database during init: {e}")
         print("[WARNING] Tables will be created on first successful connection.")
 
 def save_expense(telegram_user_id: str, expense: dict, transcript: str):
-    primary_id = get_primary_id(telegram_user_id)  # resolve to primary
+    primary_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
         record = Expense(
@@ -86,7 +94,8 @@ def save_expense(telegram_user_id: str, expense: dict, transcript: str):
             category=expense.get("category", "other"),
             merchant=expense.get("merchant"),
             date=expense.get("date", "today"),
-            transcript=transcript
+            transcript=transcript,
+            entry_type=expense.get("type", "expense")
         )
         session.add(record)
         session.commit()
@@ -106,44 +115,48 @@ def get_expenses(telegram_user_id: str):
     finally:
         session.close()
 def get_monthly_summary(telegram_user_id: str):
-    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
         now = datetime.utcnow()
-        expenses = session.query(Expense).filter(
+        entries = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
             extract('month', Expense.created_at) == now.month,
             extract('year', Expense.created_at) == now.year
         ).all()
 
-        total = sum(e.amount for e in expenses)
-        
-        # breakdown by category
-        breakdown = {}
-        for e in expenses:
-            cat = e.category or "other"
-            breakdown[cat] = breakdown.get(cat, 0) + e.amount
+        expense_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "expense")
+        income_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "income")
 
-        return total, breakdown, len(expenses)
+        # breakdown by category (expenses only)
+        breakdown = {}
+        for e in entries:
+            if (e.entry_type or "expense") == "expense":
+                cat = e.category or "other"
+                breakdown[cat] = breakdown.get(cat, 0) + e.amount
+
+        return expense_total, breakdown, len(entries), income_total
     finally:
         session.close()
 def get_monthly_summary_sync(telegram_user_id: str):
-    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
         now = datetime.utcnow()
         from sqlalchemy import extract
-        expenses = session.query(Expense).filter(
+        entries = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
             extract('month', Expense.created_at) == now.month,
             extract('year', Expense.created_at) == now.year
         ).all()
-        total = sum(e.amount for e in expenses)
+        expense_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "expense")
+        income_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "income")
         breakdown = {}
-        for e in expenses:
-            cat = e.category or "other"
-            breakdown[cat] = breakdown.get(cat, 0) + e.amount
-        return total, breakdown, len(expenses)
+        for e in entries:
+            if (e.entry_type or "expense") == "expense":
+                cat = e.category or "other"
+                breakdown[cat] = breakdown.get(cat, 0) + e.amount
+        return expense_total, breakdown, len(entries), income_total
     finally:
         session.close()
 def get_recent_expenses(telegram_user_id: str, limit: int = 10):
@@ -266,7 +279,7 @@ def delete_budget(telegram_user_id: str, category: str) -> bool:
         session.close()
 
 def get_category_spending_this_month(telegram_user_id: str, category: str) -> float:
-    """Returns total spending for a specific category this month."""
+    """Returns total spending (expenses only) for a specific category this month."""
     telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
@@ -274,6 +287,7 @@ def get_category_spending_this_month(telegram_user_id: str, category: str) -> fl
         expenses = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
             Expense.category == category,
+            Expense.entry_type != "income",
             extract('month', Expense.created_at) == now.month,
             extract('year', Expense.created_at) == now.year
         ).all()

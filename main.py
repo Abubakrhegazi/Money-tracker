@@ -20,8 +20,11 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 WAITING_FOR_EDIT = 1
 
 def format_expense_message(expense, transcript):
+    etype = expense.get('type', 'expense')
+    icon = "📥" if etype == "income" else "📤"
     return (
         f"✅ Got it!\n\n"
+        f"{icon} Type: {etype.upper()}\n"
         f"💰 Amount: {expense['amount']} {expense['currency']}\n"
         f"📂 Category: {expense['category']}\n"
         f"🏪 Merchant: {expense.get('merchant') or 'N/A'}\n"
@@ -44,35 +47,28 @@ async def extract_expense(transcript: str) -> dict:
         messages=[
             {
                 "role": "system",
-                "content": """Extract expense data from Arabic or English text.
+                "content": """Extract financial transaction data from Arabic or English text.
+                Determine if this is an INCOME or EXPENSE.
+
+                INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
+                EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
+
                 Return ONLY this exact JSON structure, no variations:
                 {
+                "type": "income" or "expense",
                 "amount": <number only, no text>,
                 "currency": <"EGP" if not mentioned>,
-                "category": <food|transport|shopping|bills|entertainment|health|other>,
+                "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
+                           <for income: salary|freelance|gift|refund|investment|other_income>,
                 "merchant": <string or null>,
                 "date": <"today" if not mentioned>
                 }
 
                 CRITICAL - Arabic number words mapping:
                 - الف / ألف = 1000
-                - الفين / ألفين = 2000  
+                - الفين / ألفين = 2000
                 - تلاتالاف / ثلاثة آلاف = 3000
                 - مية / مائة = 100
-                - میتين / مئتين = 200
-                - تلاتمية / ثلاثمائة = 300
-                - اربعمية = 400
-                - خمسمية / خمسمائة = 500
-                - ستمية = 600
-                - سبعمية = 700
-                - تمانمية = 800
-                - تسعمية = 900
-
-                COMBINATIONS work by ADDING:
-                - الف وثلاثمية = 1000 + 300 = 1300
-                - الف وخمسمية = 1000 + 500 = 1500
-                - الفين وخمسمية = 2000 + 500 = 2500
-                - ألف وثلاثمائة وخمسة وعشرين = 1000 + 300 + 25 = 1325
 
                 Always add the parts together, never ignore the thousands part."""
             },
@@ -257,24 +253,31 @@ Return ONLY valid JSON with fields: amount, currency, category, merchant, date."
 
 async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    total, breakdown, count = get_monthly_summary(user_id)
+    expense_total, breakdown, count, income_total = get_monthly_summary(user_id)
 
     if count == 0:
-        await update.message.reply_text("No expenses recorded this month yet!")
+        await update.message.reply_text("No transactions recorded this month yet!")
         return
+
+    net = income_total - expense_total
+    net_emoji = "🟢" if net >= 0 else "🔴"
 
     # build category breakdown text
     breakdown_text = ""
     for category, amount in sorted(breakdown.items(), key=lambda x: x[1], reverse=True):
-        percentage = (amount / total) * 100
+        percentage = (amount / expense_total) * 100 if expense_total > 0 else 0
         breakdown_text += f"  {category_emoji(category)} {category}: {amount:,.0f} EGP ({percentage:.0f}%)\n"
 
     reply = (
         f"📊 *Monthly Summary — {datetime.utcnow().strftime('%B %Y')}*\n\n"
-        f"💰 Total Spent: *{total:,.0f} EGP*\n"
-        f"🧾 Transactions: {count}\n\n"
-        f"*By Category:*\n{breakdown_text}"
+        f"📥 Income: *{income_total:,.0f} EGP*\n"
+        f"📤 Expenses: *{expense_total:,.0f} EGP*\n"
+        f"{net_emoji} Net: *{net:+,.0f} EGP*\n"
+        f"🧳 Transactions: {count}\n"
     )
+
+    if breakdown_text:
+        reply += f"\n*Expenses by Category:*\n{breakdown_text}"
 
     # Add budget info if set
     budgets = get_budget(user_id)
@@ -293,13 +296,10 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def category_emoji(category: str) -> str:
     emojis = {
-        "food": "🍔",
-        "transport": "🚗",
-        "shopping": "🛍️",
-        "bills": "📄",
-        "entertainment": "🎬",
-        "health": "💊",
-        "other": "📦"
+        "food": "🍔", "transport": "🚗", "shopping": "🛍️",
+        "bills": "📄", "entertainment": "🎬", "health": "💊", "other": "📦",
+        "salary": "💵", "freelance": "💻", "gift": "🎁",
+        "refund": "🔄", "investment": "📈", "other_income": "💰"
     }
     return emojis.get(category, "📦")
 from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense
