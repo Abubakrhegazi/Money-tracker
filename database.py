@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
@@ -59,6 +59,17 @@ class Budget(Base):
     amount = Column(Float, nullable=False)
     currency = Column(String, default="EGP")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class PendingTransaction(Base):
+    __tablename__ = "pending_transactions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String, nullable=False, unique=True, index=True)
+    data = Column(Text, nullable=False)       # JSON blob
+    state = Column(String, default="confirm")  # confirm | awaiting_edit
+    context = Column(Text, nullable=True)      # extra JSON context (editing_id, etc.)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
 
 def init_db():
     try:
@@ -357,5 +368,81 @@ def resolve_link_token(token: str, whatsapp_id: str) -> str | None:
     except Exception as e:
         session.rollback()
         raise e
+    finally:
+        session.close()
+
+# ── Pending Transactions (persist across restarts) ────────────────────────
+
+import json as _json
+
+def save_pending(user_id: str, data: dict, state: str = "confirm", context: dict | None = None, ttl_minutes: int = 30):
+    session = Session()
+    try:
+        existing = session.query(PendingTransaction).filter_by(user_id=user_id).first()
+        if existing:
+            existing.data = _json.dumps(data)
+            existing.state = state
+            existing.context = _json.dumps(context) if context else None
+            existing.expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
+        else:
+            session.add(PendingTransaction(
+                user_id=user_id,
+                data=_json.dumps(data),
+                state=state,
+                context=_json.dumps(context) if context else None,
+                expires_at=datetime.utcnow() + timedelta(minutes=ttl_minutes)
+            ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def get_pending(user_id: str) -> tuple[dict, str, dict | None] | None:
+    """Returns (data_dict, state, context_dict) or None if nothing pending / expired."""
+    session = Session()
+    try:
+        p = session.query(PendingTransaction).filter_by(user_id=user_id).first()
+        if not p or p.expires_at <= datetime.utcnow():
+            if p:
+                session.delete(p)
+                session.commit()
+            return None
+        data = _json.loads(p.data)
+        ctx = _json.loads(p.context) if p.context else None
+        return data, p.state, ctx
+    finally:
+        session.close()
+
+def delete_pending(user_id: str):
+    session = Session()
+    try:
+        p = session.query(PendingTransaction).filter_by(user_id=user_id).first()
+        if p:
+            session.delete(p)
+            session.commit()
+    finally:
+        session.close()
+
+def cleanup_expired_pending():
+    session = Session()
+    try:
+        session.query(PendingTransaction).filter(
+            PendingTransaction.expires_at <= datetime.utcnow()
+        ).delete()
+        session.commit()
+    finally:
+        session.close()
+
+# ── User helpers ──────────────────────────────────────────────────────────
+
+def is_new_user(user_id: str) -> bool:
+    """Returns True if this user has never recorded anything."""
+    primary = get_primary_id(user_id)
+    session = Session()
+    try:
+        count = session.query(Expense).filter_by(telegram_user_id=primary).count()
+        return count == 0
     finally:
         session.close()

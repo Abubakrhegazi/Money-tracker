@@ -144,6 +144,13 @@ async def expense_history(user=Depends(get_current_user)):
     finally:
         session.close()
 
+@app.delete("/expenses/{expense_id}")
+async def delete_expense_api(expense_id: int, user=Depends(get_current_user)):
+    success = delete_expense(user["sub"], expense_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"status": "deleted", "id": expense_id}
+
 @app.get("/expenses/monthly-trend")
 async def monthly_trend(user=Depends(get_current_user)):
     """Last 6 months spending totals"""

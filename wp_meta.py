@@ -11,8 +11,11 @@ from database import (
     init_db, save_expense, get_monthly_summary_sync,
     resolve_link_token, get_primary_id, get_recent_expenses,
     delete_expense, set_budget, get_budget,
-    get_category_spending_this_month, Session, Expense
+    get_category_spending_this_month, Session, Expense,
+    save_pending, get_pending, delete_pending, is_new_user
 )
+from collections import defaultdict
+from time import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,10 +34,20 @@ PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN")
 API_URL_META = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
 
-# In-memory stores
-pending_expenses = {}      # {phone: expense_dict}
-user_states = {}           # {phone: "awaiting_budget_category"|"awaiting_budget_amount"|"awaiting_edit"}
-user_context = {}          # {phone: {extra data}}
+# Rate limiter: {user_id: [timestamp, ...]}
+_rate_buckets: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT = 10       # max messages
+RATE_WINDOW = 60      # per N seconds
+
+def is_rate_limited(user_id: str) -> bool:
+    now = time()
+    bucket = _rate_buckets[user_id]
+    # prune old entries
+    _rate_buckets[user_id] = [t for t in bucket if now - t < RATE_WINDOW]
+    if len(_rate_buckets[user_id]) >= RATE_LIMIT:
+        return True
+    _rate_buckets[user_id].append(now)
+    return False
 
 CATEGORY_EMOJI = {
     "food": "🍔", "transport": "🚗", "shopping": "🛍️",
@@ -266,14 +279,12 @@ def handle_edit_start(phone: str, args: str):
         send_message(phone, f"❌ Expense #{expense_id} not found.")
         return
 
-    user_context[phone] = {
-        "editing_id": expense_id,
-        "expense": {
-            "amount": expense.amount, "currency": expense.currency,
-            "category": expense.category, "merchant": expense.merchant, "date": expense.date
-        }
+    exp_data = {
+        "amount": expense.amount, "currency": expense.currency,
+        "category": expense.category, "merchant": expense.merchant,
+        "date": expense.date, "type": expense.entry_type or "expense"
     }
-    user_states[phone] = "awaiting_edit"
+    save_pending(phone, exp_data, state="awaiting_edit", context={"editing_id": expense_id})
 
     send_message(phone,
         f"✏️ Editing #{expense_id}:\n"
@@ -364,7 +375,6 @@ def verify_webhook():
         return challenge, 200
     return "Forbidden", 403
 
-
 @app.route("/whatsapp", methods=["POST"])
 def webhook():
     data = request.json
@@ -380,7 +390,68 @@ def webhook():
         from_number = message["from"]
         msg_type = message["type"]
 
-        # ── Voice note ────────────────────────────────────────────────────────
+        # ── Rate limiting ───────────────────────────────────────────────
+        if is_rate_limited(from_number):
+            send_message(from_number, "⏳ Slow down! Try again in a moment.")
+            return jsonify({"status": "ok"}), 200
+
+        # ── Onboarding for new users ────────────────────────────────────
+        if is_new_user(from_number):
+            send_message(from_number,
+                "👋 Welcome to *Aura*! I'm your personal finance tracker.\n\n"
+                "Just send me a message like 'spent 150 on lunch' or "
+                "'received 5000 salary' and I'll track it for you!\n\n"
+                "🎤 You can also send voice notes or 📷 photos of receipts.\n\n"
+                "Here are your commands:"
+            )
+            handle_help(from_number)
+
+        # ── Image / Receipt scanning ────────────────────────────────────
+        if msg_type == "image":
+            send_message(from_number, "📷 Scanning receipt...")
+            image_id = message["image"]["id"]
+            url_resp = requests.get(
+                f"https://graph.facebook.com/v18.0/{image_id}",
+                headers={"Authorization": f"Bearer {META_TOKEN}"}
+            )
+            image_url = url_resp.json()["url"]
+            img_data = requests.get(image_url, headers={"Authorization": f"Bearer {META_TOKEN}"}).content
+            import base64
+            img_b64 = base64.b64encode(img_data).decode()
+
+            response = groq_client.chat.completions.create(
+                model="llama-3.2-90b-vision-preview",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": """Extract financial transaction data from this receipt/image.
+Return ONLY JSON: {"type": "income" or "expense", "amount": <number>, "currency": "EGP", "category": <food|transport|shopping|bills|entertainment|health|other>, "merchant": <string or null>, "date": "today"}
+If not a receipt, return {"error": "not_a_receipt"}"""},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                    ]
+                }],
+                response_format={"type": "json_object"}
+            )
+            txn = json.loads(response.choices[0].message.content)
+
+            if "error" in txn:
+                send_message(from_number, "📷 Couldn't extract a transaction from that image. Try a clearer photo!")
+                return jsonify({"status": "ok"}), 200
+
+            txn["_transcript"] = "[receipt photo]"
+            save_pending(from_number, txn)
+            etype = txn.get("type", "expense")
+            send_message(from_number,
+                f"📷 Receipt scanned!\n\n"
+                f"{type_emoji(etype)} {etype.upper()}\n"
+                f"💰 {txn['amount']} {txn.get('currency', 'EGP')}\n"
+                f"📂 {txn.get('category', 'other')}\n"
+                f"🏪 {txn.get('merchant') or 'N/A'}\n\n"
+                f"Reply yes to save, no to cancel, or tell me what to correct."
+            )
+            return jsonify({"status": "ok"}), 200
+
+        # ── Voice note ──────────────────────────────────────────────────
         if msg_type == "audio":
             send_message(from_number, "🎤 Transcribing...")
             audio_id = message["audio"]["id"]
@@ -397,7 +468,7 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             txn["_transcript"] = transcript
-            pending_expenses[from_number] = txn
+            save_pending(from_number, txn)
             etype = txn.get("type", "expense")
             send_message(from_number,
                 f"🎤 Heard: {transcript}\n\n"
@@ -409,7 +480,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        # ── Text message ──────────────────────────────────────────────────────
+        # ── Text message ────────────────────────────────────────────────
         if msg_type != "text":
             return jsonify({"status": "ok"}), 200
 
@@ -417,15 +488,14 @@ def webhook():
         cmd = body.lower().split()[0] if body else ""
         args = body[len(cmd):].strip()
 
-        # Handle stateful flows first
-        state = user_states.get(from_number)
+        # Check DB for pending transaction
+        pending = get_pending(from_number)
 
         # Awaiting edit correction
-        if state == "awaiting_edit":
-            ctx = user_context.get(from_number, {})
-            updated = apply_correction(ctx["expense"], body)
+        if pending and pending[1] == "awaiting_edit":
+            expense_data, _state, ctx = pending
+            updated = apply_correction(expense_data, body)
             editing_id = ctx["editing_id"]
-            user_id = get_primary_id(from_number)
 
             session = Session()
             try:
@@ -436,12 +506,12 @@ def webhook():
                     record.category = updated.get("category", "other")
                     record.merchant = updated.get("merchant")
                     record.date = updated.get("date", "today")
+                    record.entry_type = updated.get("type", record.entry_type or "expense")
                     session.commit()
             finally:
                 session.close()
 
-            user_states.pop(from_number, None)
-            user_context.pop(from_number, None)
+            delete_pending(from_number)
             etype = updated.get("type", "expense")
             send_message(from_number,
                 f"✅ Entry #{editing_id} updated!\n\n"
@@ -452,38 +522,39 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         # Awaiting confirmation or correction
-        if from_number in pending_expenses:
+        if pending and pending[1] == "confirm":
+            expense_data, _state, _ctx = pending
             if body.lower() in ["yes", "y", "يس", "اه", "آه", "ok", "اوك"]:
-                expense = pending_expenses.pop(from_number)
+                delete_pending(from_number)
                 user_id = get_primary_id(from_number)
-                save_expense(user_id, expense, expense.get("_transcript", ""))
-                etype = expense.get("type", "expense")
+                save_expense(user_id, expense_data, expense_data.get("_transcript", ""))
+                etype = expense_data.get("type", "expense")
                 alert = ""
                 if etype == "expense":
-                    alert = check_budget_alert(user_id, expense.get("category", "other"), expense["amount"])
+                    alert = check_budget_alert(user_id, expense_data.get("category", "other"), expense_data["amount"])
                 send_message(from_number,
                     f"💾 Saved!\n"
                     f"{type_emoji(etype)} {etype.upper()}\n"
-                    f"💰 {expense['amount']} {expense['currency']} — {expense['category']}\n"
-                    f"🏪 {expense.get('merchant') or 'N/A'}"
+                    f"💰 {expense_data['amount']} {expense_data.get('currency', 'EGP')} — {expense_data.get('category', 'other')}\n"
+                    f"🏪 {expense_data.get('merchant') or 'N/A'}"
                     + alert
                 )
                 return jsonify({"status": "ok"}), 200
             elif body.lower() in ["no", "n", "لا", "cancel"]:
-                pending_expenses.pop(from_number)
+                delete_pending(from_number)
                 send_message(from_number, "❌ Cancelled.")
                 return jsonify({"status": "ok"}), 200
             else:
                 # Treat as correction
-                original = pending_expenses[from_number]
-                updated = apply_correction(original, body)
-                pending_expenses[from_number] = {**updated, "_transcript": original.get("_transcript", "")}
+                updated = apply_correction(expense_data, body)
+                updated["_transcript"] = expense_data.get("_transcript", "")
+                save_pending(from_number, updated)
                 etype = updated.get("type", "expense")
                 send_message(from_number,
                     f"Updated!\n\n"
                     f"{type_emoji(etype)} {etype.upper()}\n"
-                    f"💰 {updated['amount']} {updated['currency']}\n"
-                    f"📂 {updated['category']}\n"
+                    f"💰 {updated['amount']} {updated.get('currency', 'EGP')}\n"
+                    f"📂 {updated.get('category', 'other')}\n"
                     f"🏪 {updated.get('merchant') or 'N/A'}\n\n"
                     f"Reply yes to save or no to cancel."
                 )
@@ -549,12 +620,12 @@ def webhook():
                 )
             else:
                 txn["_transcript"] = body
-                pending_expenses[from_number] = txn
+                save_pending(from_number, txn)
                 etype = txn.get("type", "expense")
                 send_message(from_number,
                     f"{type_emoji(etype)} {etype.upper()}\n"
-                    f"💰 {txn['amount']} {txn['currency']}\n"
-                    f"📂 {txn['category']}\n"
+                    f"💰 {txn['amount']} {txn.get('currency', 'EGP')}\n"
+                    f"📂 {txn.get('category', 'other')}\n"
                     f"🏪 {txn.get('merchant') or 'N/A'}\n\n"
                     f"Reply yes to save, no to cancel, or tell me what to correct."
                 )
