@@ -11,7 +11,7 @@ import os
 from pydantic import BaseModel
 import secrets
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget
+from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense
 from sqlalchemy import extract
 
 load_dotenv()
