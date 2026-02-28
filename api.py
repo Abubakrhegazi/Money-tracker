@@ -153,14 +153,14 @@ async def delete_expense_api(expense_id: int, user=Depends(get_current_user)):
 
 @app.get("/expenses/monthly-trend")
 async def monthly_trend(user=Depends(get_current_user)):
-    """Last 6 months spending totals"""
     session = Session()
     try:
         now = datetime.utcnow()
         result = []
         for i in range(5, -1, -1):
-            month = (now.month - i - 1) % 12 + 1
-            year = now.year - ((now.month - i - 1) // 12)
+            # correct calculation
+            month = ((now.month - 1 - i) % 12) + 1
+            year = now.year + ((now.month - 1 - i) // 12)  # this was the bug
             expenses = session.query(Expense).filter(
                 Expense.telegram_user_id == user["sub"],
                 extract('month', Expense.created_at) == month,
@@ -174,6 +174,7 @@ async def monthly_trend(user=Depends(get_current_user)):
         return result
     finally:
         session.close()
+
 # ── Budget ────────────────────────────────────────────────────────────
 
 class BudgetBody(BaseModel):
