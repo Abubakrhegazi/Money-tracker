@@ -56,6 +56,7 @@ export default function DashboardPage() {
   const [budgetInput, setBudgetInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [activeSection, setActiveSection] = useState("dashboard");
 
   useEffect(() => {
     if (!getToken()) { router.push("/"); return; }
@@ -121,14 +122,14 @@ export default function DashboardPage() {
         </div>
 
         <nav className="flex flex-col gap-1 flex-1">
-          <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" active />
-          <NavItem icon={<Receipt size={18} />} label="Transactions" />
-          <NavItem icon={<Target size={18} />} label="Budgets" />
-          <NavItem icon={<TrendingUp size={18} />} label="Analytics" />
+          <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" active={activeSection === "dashboard"} onClick={() => { setActiveSection("dashboard"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <NavItem icon={<Receipt size={18} />} label="Transactions" active={activeSection === "transactions"} onClick={() => { setActiveSection("transactions"); document.getElementById("section-transactions")?.scrollIntoView({ behavior: "smooth" }); }} />
+          <NavItem icon={<Target size={18} />} label="Budgets" active={activeSection === "budgets"} onClick={() => { setActiveSection("budgets"); document.getElementById("section-budget")?.scrollIntoView({ behavior: "smooth" }); }} />
+          <NavItem icon={<TrendingUp size={18} />} label="Analytics" active={activeSection === "analytics"} onClick={() => { setActiveSection("analytics"); document.getElementById("section-analytics")?.scrollIntoView({ behavior: "smooth" }); }} />
         </nav>
 
         <div className="border-t border-white/5 pt-4">
-          <NavItem icon={<Settings size={18} />} label="Settings" />
+          <NavItem icon={<Settings size={18} />} label="Settings" active={activeSection === "settings"} onClick={() => { setActiveSection("settings"); }} />
         </div>
       </aside>
 
@@ -193,7 +194,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Budget Section ──────────────────────────── */}
-          <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-6">
+          <div id="section-budget" className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-6">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <Target size={18} className="text-violet-400" /> Monthly Budget
@@ -285,7 +286,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Charts ──────────────────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div id="section-analytics" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Pie Chart */}
             <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-6">
               <h2 className="text-base font-semibold mb-4">Spending by Category</h2>
@@ -362,7 +363,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Transactions Table ───────────────────────── */}
-          <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-6">
+          <div id="section-transactions" className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-base font-semibold">Transactions</h2>
               <div className="relative">
@@ -456,10 +457,12 @@ function BigStatCard({ label, value, suffix, trend, trendLabel, neutral, emoji }
   );
 }
 
-function NavItem({ icon, label, active }: { icon: React.ReactNode; label: string; active?: boolean }) {
+function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active?: boolean; onClick?: () => void }) {
   return (
-    <button className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition ${active ? "bg-violet-500/10 text-violet-400" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
-      }`}>
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${active ? "bg-violet-500/10 text-violet-400" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+        }`}>
       {icon}
       <span>{label}</span>
     </button>
