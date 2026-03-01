@@ -57,6 +57,29 @@ CATEGORY_EMOJI = {
 CATEGORIES = ["food", "transport", "shopping", "bills", "entertainment", "health", "other"]
 INCOME_CATEGORIES = ["salary", "freelance", "gift", "refund", "investment", "other_income"]
 
+import re
+
+_GREETING_PATTERNS = re.compile(
+    r'^\s*(hi|hello|hey|yo|sup|hola|morning|good\s*(morning|evening|afternoon|night)|'
+    r'مرحبا|اهلا|هاي|صباح|مساء|السلام|سلام|ازيك|عامل|كيف|شكرا|thanks|thank you|ok|okay|bye|cool|nice|great|lol|haha|wow|yes|no|yep|nah|mhm)\s*[!?.]*\s*$',
+    re.IGNORECASE
+)
+
+def is_greeting(text: str) -> bool:
+    """Fast check: is this a greeting/chitchat with no financial content?"""
+    if _GREETING_PATTERNS.match(text):
+        return True
+    # If the message has no digits at all and is short, it's likely chitchat
+    if len(text) < 30 and not re.search(r'\d', text):
+        # Check for any financial keywords
+        financial_kw = re.compile(
+            r'(spent|paid|bought|cost|received|earned|salary|مرتب|صرفت|دفعت|اشتريت|استلمت|جالي|الف|مية)',
+            re.IGNORECASE
+        )
+        if not financial_kw.search(text):
+            return True
+    return False
+
 
 def cat_emoji(category: str) -> str:
     return CATEGORY_EMOJI.get(category, "📦")
@@ -155,28 +178,39 @@ def extract_transaction(transcript: str) -> dict:
         model="llama-3.1-8b-instant",
         messages=[{
             "role": "system",
-            "content": """Extract financial transaction data from Arabic or English text.
-Determine if this is an INCOME or EXPENSE.
+            "content": """You are a financial transaction parser. Your ONLY job is to extract transaction data from messages that CLEARLY describe spending or receiving money.
+
+CRITICAL RULES:
+1. The message MUST contain a specific monetary amount (a number). If there is NO number/amount, return {"error": "not_a_transaction"}
+2. Greetings, questions, small talk, or vague statements are NOT transactions. Return {"error": "not_a_transaction"}
+3. The merchant field should ONLY be a real business/store/person name mentioned in the text. If none is mentioned, set merchant to null. Do NOT use random words as merchant.
+4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
 
 INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
 EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
 
-Return ONLY this exact JSON:
+Return ONLY this JSON:
 {
   "type": "income" or "expense",
-  "amount": <number only>,
+  "amount": <number — MUST be a real number, never null>,
   "currency": <"EGP" if not mentioned>,
   "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
-  "merchant": <string or null>,
+  "merchant": <real business/person name or null>,
   "date": <"today" if not mentioned>
 }
 Arabic numbers: الف=1000, مية=100, combinations add together.
-If the text does not describe a financial transaction, return {"error": "not_a_transaction"}"""
+If NOT a clear financial transaction with a specific amount, return {"error": "not_a_transaction"}"""
         }, {"role": "user", "content": transcript}],
         response_format={"type": "json_object"}
     )
-    return json.loads(response.choices[0].message.content)
+    result = json.loads(response.choices[0].message.content)
+    # Post-parse validation: reject if amount is missing/invalid
+    if "error" not in result:
+        amount = result.get("amount")
+        if amount is None or amount == 0 or not isinstance(amount, (int, float)):
+            return {"error": "no_amount"}
+    return result
 
 
 def apply_correction(original: dict, correction: str) -> dict:
@@ -716,17 +750,26 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
         elif cmd.startswith("/"):
             send_message(from_number, "Unknown command. Send /help to see all commands.")
         else:
-            txn = extract_transaction(body)
-            if "error" in txn:
+            # Pre-filter: catch greetings/chitchat without calling AI
+            if is_greeting(body):
                 send_message(from_number,
-                    "I didn't recognize that as an expense or income.\n\n"
-                    "Try:\n• 'spent 150 on lunch'\n• 'received 5000 salary'\n\n"
-                    "Send /help for all commands."
+                    "👋 Hey! I'm your finance tracker.\n\n"
+                    "Log an expense: 'spent 50 on lunch'\n"
+                    "Log income: 'received 5000 salary'\n\n"
+                    "Or send /help for all commands."
                 )
             else:
-                txn["_transcript"] = body
-                save_pending(from_number, txn)
-                send_transaction_confirmation(from_number, txn)
+                txn = extract_transaction(body)
+                if "error" in txn:
+                    send_message(from_number,
+                        "I didn't recognize that as an expense or income.\n\n"
+                        "Try:\n• 'spent 150 on lunch'\n• 'received 5000 salary'\n\n"
+                        "Send /help for all commands."
+                    )
+                else:
+                    txn["_transcript"] = body
+                    save_pending(from_number, txn)
+                    send_transaction_confirmation(from_number, txn)
 
     except Exception as e:
         logger.error(f"Webhook error: {e}")
