@@ -35,6 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Admin router ─────────────────────────────────────────────────────────
+from admin_api import router as admin_router
+app.include_router(admin_router, prefix="/admin", tags=["admin"])
+
+# ── Security headers middleware ──────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # ── Global exception handler (ensures CORS headers on 500s) ──────────
 
 @app.exception_handler(Exception)

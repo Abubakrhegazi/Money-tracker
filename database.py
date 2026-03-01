@@ -71,6 +71,38 @@ class PendingTransaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
 
+# ── Admin Models ──────────────────────────────────────────────────────────
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    totp_secret = Column(String, nullable=True)  # for future 2FA
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_log"
+    id = Column(Integer, primary_key=True)
+    admin_username = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=True)  # "user", "transaction", "setting"
+    target_id = Column(String, nullable=True)
+    ip = Column(String, nullable=True)
+    details = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+class AdminSession(Base):
+    __tablename__ = "admin_sessions"
+    id = Column(Integer, primary_key=True)
+    admin_username = Column(String, nullable=False)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    ip = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    last_active = Column(DateTime, default=datetime.utcnow)
+    revoked = Column(Boolean, default=False)
+
 def init_db():
     try:
         from sqlalchemy import inspect, text
@@ -444,5 +476,356 @@ def is_new_user(user_id: str) -> bool:
     try:
         count = session.query(Expense).filter_by(telegram_user_id=primary).count()
         return count == 0
+    finally:
+        session.close()
+
+# ── Admin helpers ─────────────────────────────────────────────────────────
+
+from sqlalchemy import func, desc, distinct, case
+
+def get_all_users_admin(page=1, per_page=25, search=None, status=None):
+    """Get paginated user list for admin dashboard."""
+    session = Session()
+    try:
+        # Get distinct user IDs with aggregated stats
+        subq = session.query(
+            Expense.telegram_user_id.label("user_id"),
+            func.count(Expense.id).label("total_transactions"),
+            func.sum(case((Expense.entry_type == "expense", Expense.amount), else_=0)).label("total_spent"),
+            func.sum(case((Expense.entry_type == "income", Expense.amount), else_=0)).label("total_income"),
+            func.min(Expense.created_at).label("joined"),
+            func.max(Expense.created_at).label("last_active"),
+        ).group_by(Expense.telegram_user_id)
+
+        if search:
+            subq = subq.filter(Expense.telegram_user_id.ilike(f"%{search}%"))
+
+        total = subq.count()
+        users = subq.order_by(desc("last_active")).offset((page - 1) * per_page).limit(per_page).all()
+
+        result = []
+        for u in users:
+            # Check for linked accounts
+            links = session.query(UserLink).filter(
+                (UserLink.primary_id == u.user_id) | (UserLink.linked_id == u.user_id)
+            ).all()
+            platforms = set()
+            for link in links:
+                if link.platform:
+                    platforms.add(link.platform)
+            # Determine primary platform
+            if u.user_id.isdigit() and len(u.user_id) < 15:
+                platforms.add("telegram")
+            else:
+                platforms.add("whatsapp")
+
+            result.append({
+                "user_id": u.user_id,
+                "total_transactions": u.total_transactions,
+                "total_spent": float(u.total_spent or 0),
+                "total_income": float(u.total_income or 0),
+                "joined": u.joined.isoformat() if u.joined else None,
+                "last_active": u.last_active.isoformat() if u.last_active else None,
+                "platforms": list(platforms),
+            })
+
+        return {"users": result, "total": total, "page": page, "per_page": per_page}
+    finally:
+        session.close()
+
+
+def get_user_detail_admin(user_id: str):
+    """Get detailed user info for admin."""
+    session = Session()
+    try:
+        expenses = session.query(Expense).filter_by(
+            telegram_user_id=user_id
+        ).order_by(desc(Expense.created_at)).all()
+
+        if not expenses:
+            return None
+
+        total_spent = sum(e.amount for e in expenses if (e.entry_type or "expense") == "expense")
+        total_income = sum(e.amount for e in expenses if (e.entry_type or "expense") == "income")
+
+        breakdown = {}
+        for e in expenses:
+            if (e.entry_type or "expense") == "expense":
+                breakdown[e.category] = breakdown.get(e.category, 0) + e.amount
+
+        transactions = [{
+            "id": e.id,
+            "amount": e.amount,
+            "currency": e.currency,
+            "category": e.category,
+            "merchant": e.merchant,
+            "date": e.date,
+            "entry_type": e.entry_type or "expense",
+            "transcript": e.transcript,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        } for e in expenses]
+
+        links = session.query(UserLink).filter(
+            (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)
+        ).all()
+
+        return {
+            "user_id": user_id,
+            "total_transactions": len(expenses),
+            "total_spent": total_spent,
+            "total_income": total_income,
+            "breakdown": breakdown,
+            "transactions": transactions,
+            "joined": expenses[-1].created_at.isoformat() if expenses else None,
+            "last_active": expenses[0].created_at.isoformat() if expenses else None,
+            "linked_accounts": [{"id": l.linked_id, "platform": l.platform} for l in links],
+        }
+    finally:
+        session.close()
+
+
+def get_all_transactions_admin(page=1, per_page=25, entry_type=None, category=None,
+                                user_id=None, search=None, date_from=None, date_to=None):
+    session = Session()
+    try:
+        q = session.query(Expense).order_by(desc(Expense.created_at))
+        if entry_type:
+            q = q.filter(Expense.entry_type == entry_type)
+        if category:
+            q = q.filter(Expense.category == category)
+        if user_id:
+            q = q.filter(Expense.telegram_user_id == user_id)
+        if search:
+            q = q.filter(
+                (Expense.merchant.ilike(f"%{search}%")) |
+                (Expense.transcript.ilike(f"%{search}%"))
+            )
+        if date_from:
+            q = q.filter(Expense.created_at >= date_from)
+        if date_to:
+            q = q.filter(Expense.created_at <= date_to)
+
+        total = q.count()
+        txns = q.offset((page - 1) * per_page).limit(per_page).all()
+
+        return {
+            "transactions": [{
+                "id": t.id,
+                "user_id": t.telegram_user_id,
+                "amount": t.amount,
+                "currency": t.currency,
+                "category": t.category,
+                "merchant": t.merchant,
+                "entry_type": t.entry_type or "expense",
+                "transcript": t.transcript,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            } for t in txns],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+        }
+    finally:
+        session.close()
+
+
+def get_global_stats(days=30):
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(days=days)
+        week_ago = now - timedelta(days=7)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        total_users = session.query(distinct(Expense.telegram_user_id)).count()
+        active_7d = session.query(distinct(Expense.telegram_user_id)).filter(
+            Expense.created_at >= week_ago
+        ).count()
+        total_txns = session.query(Expense).count()
+        total_volume = session.query(func.sum(Expense.amount)).scalar() or 0
+        new_today = session.query(distinct(Expense.telegram_user_id)).filter(
+            Expense.created_at >= today_start
+        ).count()  # approximation
+        txns_today = session.query(Expense).filter(Expense.created_at >= today_start).count()
+
+        # Expense vs income
+        total_expense = session.query(func.sum(Expense.amount)).filter(
+            Expense.entry_type == "expense"
+        ).scalar() or 0
+        total_income = session.query(func.sum(Expense.amount)).filter(
+            Expense.entry_type == "income"
+        ).scalar() or 0
+
+        # Top categories
+        top_cats = session.query(
+            Expense.category, func.sum(Expense.amount).label("total")
+        ).filter(Expense.entry_type == "expense").group_by(
+            Expense.category
+        ).order_by(desc("total")).limit(10).all()
+
+        # Top merchants
+        top_merchants = session.query(
+            Expense.merchant, func.sum(Expense.amount).label("total")
+        ).filter(
+            Expense.merchant.isnot(None), Expense.merchant != ""
+        ).group_by(Expense.merchant).order_by(desc("total")).limit(10).all()
+
+        # Daily activity (last N days)
+        daily_data = []
+        for i in range(min(days, 90)):
+            day = today_start - timedelta(days=i)
+            day_end = day + timedelta(days=1)
+            day_txns = session.query(Expense).filter(
+                Expense.created_at >= day, Expense.created_at < day_end
+            ).count()
+            day_users = session.query(distinct(Expense.telegram_user_id)).filter(
+                Expense.created_at >= day, Expense.created_at < day_end
+            ).count()
+            day_vol = session.query(func.sum(Expense.amount)).filter(
+                Expense.created_at >= day, Expense.created_at < day_end
+            ).scalar() or 0
+            daily_data.append({
+                "date": day.strftime("%Y-%m-%d"),
+                "transactions": day_txns,
+                "active_users": day_users,
+                "volume": float(day_vol),
+            })
+        daily_data.reverse()
+
+        return {
+            "total_users": total_users,
+            "active_7d": active_7d,
+            "total_transactions": total_txns,
+            "total_volume": float(total_volume),
+            "new_today": new_today,
+            "transactions_today": txns_today,
+            "total_expense": float(total_expense),
+            "total_income": float(total_income),
+            "top_categories": [{"name": c[0], "total": float(c[1])} for c in top_cats],
+            "top_merchants": [{"name": m[0], "total": float(m[1])} for m in top_merchants],
+            "daily": daily_data,
+        }
+    finally:
+        session.close()
+
+
+def delete_user_data(user_id: str):
+    session = Session()
+    try:
+        session.query(Expense).filter_by(telegram_user_id=user_id).delete()
+        session.query(Budget).filter_by(telegram_user_id=user_id).delete()
+        session.query(PendingTransaction).filter_by(user_id=user_id).delete()
+        session.query(UserLink).filter(
+            (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)
+        ).delete(synchronize_session=False)
+        session.commit()
+        return True
+    except Exception:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def log_admin_action(username: str, action: str, target_type=None, target_id=None, ip=None, details=None):
+    session = Session()
+    try:
+        session.add(AdminAuditLog(
+            admin_username=username,
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id) if target_id else None,
+            ip=ip,
+            details=details,
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+
+def get_audit_log(page=1, per_page=50):
+    session = Session()
+    try:
+        q = session.query(AdminAuditLog).order_by(desc(AdminAuditLog.timestamp))
+        total = q.count()
+        logs = q.offset((page - 1) * per_page).limit(per_page).all()
+        return {
+            "logs": [{
+                "id": l.id,
+                "admin": l.admin_username,
+                "action": l.action,
+                "target_type": l.target_type,
+                "target_id": l.target_id,
+                "ip": l.ip,
+                "details": l.details,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None,
+            } for l in logs],
+            "total": total,
+            "page": page,
+        }
+    finally:
+        session.close()
+
+
+def create_admin_session(username: str, ip: str = None, expiry_seconds: int = 1800):
+    token = secrets.token_urlsafe(48)
+    session = Session()
+    try:
+        session.add(AdminSession(
+            admin_username=username,
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            ip=ip,
+            expires_at=datetime.utcnow() + timedelta(seconds=expiry_seconds),
+        ))
+        session.commit()
+        return token
+    finally:
+        session.close()
+
+
+def validate_admin_session(token: str):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    session = Session()
+    try:
+        s = session.query(AdminSession).filter_by(token_hash=token_hash, revoked=False).first()
+        if not s or s.expires_at <= datetime.utcnow():
+            return None
+        s.last_active = datetime.utcnow()
+        session.commit()
+        return s.admin_username
+    finally:
+        session.close()
+
+
+def revoke_admin_session(session_id: int):
+    session = Session()
+    try:
+        s = session.query(AdminSession).filter_by(id=session_id).first()
+        if s:
+            s.revoked = True
+            session.commit()
+            return True
+        return False
+    finally:
+        session.close()
+
+
+def get_active_admin_sessions(username: str = None):
+    session = Session()
+    try:
+        q = session.query(AdminSession).filter(
+            AdminSession.revoked == False,
+            AdminSession.expires_at > datetime.utcnow()
+        )
+        if username:
+            q = q.filter_by(admin_username=username)
+        sessions = q.order_by(desc(AdminSession.last_active)).all()
+        return [{
+            "id": s.id,
+            "admin": s.admin_username,
+            "ip": s.ip,
+            "created_at": s.created_at.isoformat(),
+            "last_active": s.last_active.isoformat() if s.last_active else None,
+            "expires_at": s.expires_at.isoformat(),
+        } for s in sessions]
     finally:
         session.close()

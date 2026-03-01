@@ -9,3 +9,5 @@ psycopg2-binary
 python-jose[cryptography]
 alembic
 Flask
+bcrypt
+pyotp
