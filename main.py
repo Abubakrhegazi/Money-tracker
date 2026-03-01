@@ -41,42 +41,68 @@ def confirm_keyboard():
         ]
     ])
 
+import re
+
+_GREETING_PATTERNS = re.compile(
+    r'^\s*(hi|hello|hey|yo|sup|hola|morning|good\s*(morning|evening|afternoon|night)|'
+    r'مرحبا|اهلا|هاي|صباح|مساء|السلام|سلام|ازيك|عامل|كيف|شكرا|thanks|thank you|ok|okay|bye|cool|nice|great|lol|haha|wow|yes|no|yep|nah|mhm)\s*[!?.]*\s*$',
+    re.IGNORECASE
+)
+
+def is_greeting(text: str) -> bool:
+    if _GREETING_PATTERNS.match(text):
+        return True
+    if len(text) < 30 and not re.search(r'\d', text):
+        financial_kw = re.compile(
+            r'(spent|paid|bought|cost|received|earned|salary|مرتب|صرفت|دفعت|اشتريت|استلمت|جالي|الف|مية)',
+            re.IGNORECASE
+        )
+        if not financial_kw.search(text):
+            return True
+    return False
+
 async def extract_expense(transcript: str) -> dict:
     response = groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
             {
                 "role": "system",
-                "content": """Extract financial transaction data from Arabic or English text.
-                Determine if this is an INCOME or EXPENSE.
+                "content": """You are a financial transaction parser. Your ONLY job is to extract transaction data from messages that CLEARLY describe spending or receiving money.
 
-                INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
-                EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
+CRITICAL RULES:
+1. The message MUST contain a specific monetary amount (a number). If there is NO number/amount, return {"error": "not_a_transaction"}
+2. Greetings, questions, small talk, or vague statements are NOT transactions. Return {"error": "not_a_transaction"}
+3. The merchant field should ONLY be a real business/store/person name. If none mentioned, set merchant to null. Do NOT use random words as merchant.
+4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
 
-                Return ONLY this exact JSON structure, no variations:
-                {
-                "type": "income" or "expense",
-                "amount": <number only, no text>,
-                "currency": <"EGP" if not mentioned>,
-                "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
-                           <for income: salary|freelance|gift|refund|investment|other_income>,
-                "merchant": <string or null>,
-                "date": <"today" if not mentioned>
-                }
+INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
+EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
 
-                CRITICAL - Arabic number words mapping:
-                - الف / ألف = 1000
-                - الفين / ألفين = 2000
-                - تلاتالاف / ثلاثة آلاف = 3000
-                - مية / مائة = 100
-
-                Always add the parts together, never ignore the thousands part."""
+Return ONLY this JSON:
+{
+  "type": "income" or "expense",
+  "amount": <number — MUST be a real number, never null>,
+  "currency": <"EGP" if not mentioned>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
+             <for income: salary|freelance|gift|refund|investment|other_income>,
+  "merchant": <real business/person name or null>,
+  "date": <"today" if not mentioned>
+}
+Arabic numbers: الف=1000, الفين=2000, تلاتالاف=3000, مية=100.
+Always add parts together, never ignore the thousands part.
+If NOT a clear financial transaction with a specific amount, return {"error": "not_a_transaction"}"""
             },
             {"role": "user", "content": transcript}
         ],
         response_format={"type": "json_object"}
     )
-    return json.loads(response.choices[0].message.content)
+    result = json.loads(response.choices[0].message.content)
+    # Post-parse validation
+    if "error" not in result:
+        amount = result.get("amount")
+        if amount is None or amount == 0 or not isinstance(amount, (int, float)):
+            return {"error": "no_amount"}
+    return result
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Ignore commands
@@ -90,8 +116,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     transcript = update.message.text
 
-    # Extract expense using same function as voice
+    # Catch greetings without calling AI
+    if is_greeting(transcript):
+        await update.message.reply_text(
+            "👋 Hey! I'm your finance tracker.\n\n"
+            "Log an expense: 'spent 50 on lunch'\n"
+            "Log income: 'received 5000 salary'\n\n"
+            "Or send /help for all commands."
+        )
+        return
+
     expense = await extract_expense(transcript)
+
+    if "error" in expense:
+        await update.message.reply_text(
+            "I didn't recognize that as a transaction.\n\n"
+            "Try: 'spent 150 on lunch' or 'received 5000 salary'"
+        )
+        return
+
     context.user_data["pending_expense"] = expense
     context.user_data["transcript"] = transcript
 
@@ -101,7 +144,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=confirm_keyboard()
     )
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Download voice note
     voice = update.message.voice
     file = await context.bot.get_file(voice.file_id)
     file_path = f"voice_{update.message.message_id}.ogg"
@@ -116,14 +158,27 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     transcript = transcription.text
     os.remove(file_path)
 
-    # Extract
+    # Catch greetings
+    if is_greeting(transcript):
+        await update.message.reply_text(
+            f"🎤 Heard: {transcript}\n\n"
+            "👋 Hey! I'm your finance tracker.\n\n"
+            "Log an expense: 'spent 50 on lunch'\n"
+            "Log income: 'received 5000 salary'"
+        )
+        return
+
     expense = await extract_expense(transcript)
 
-    # Store in context for later use (confirm/edit)
+    if "error" in expense:
+        await update.message.reply_text(
+            f"🎤 Heard: {transcript}\n\nCouldn't identify a transaction. Try again!"
+        )
+        return
+
     context.user_data["pending_expense"] = expense
     context.user_data["transcript"] = transcript
 
-    # Reply with confirmation buttons
     await update.message.reply_text(
         format_expense_message(expense, transcript),
         parse_mode="Markdown",

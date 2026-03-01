@@ -609,6 +609,18 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
             )
             audio_url = url_response.json()["url"]
             transcript = transcribe_audio(audio_url)
+
+            # Check if transcript is just a greeting
+            if is_greeting(transcript):
+                send_message(from_number,
+                    f"🎤 Heard: {transcript}\n\n"
+                    "👋 Hey! I'm your finance tracker.\n\n"
+                    "Log an expense: 'spent 50 on lunch'\n"
+                    "Log income: 'received 5000 salary'\n\n"
+                    "Or send /help for all commands."
+                )
+                return jsonify({"status": "ok"}), 200
+
             txn = extract_transaction(transcript)
 
             if "error" in txn:
