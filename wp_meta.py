@@ -750,10 +750,25 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
                 send_message(from_number, "❌ Cancelled, nothing was saved.")
                 return jsonify({"status": "ok"}), 200
             else:
-                updated = apply_correction(expense_data, body)
-                updated["_transcript"] = expense_data.get("_transcript", "")
-                save_pending(from_number, updated)
-                send_transaction_confirmation(from_number, updated)
+                # Only treat as correction if it looks like one
+                # (has numbers, "amount", "category", "merchant", "change", etc.)
+                looks_like_edit = bool(
+                    re.search(r'\d', body) or
+                    re.search(r'(amount|category|merchant|type|change|make it|should be|actually|correct)', body, re.IGNORECASE)
+                )
+                if looks_like_edit:
+                    updated = apply_correction(expense_data, body)
+                    updated["_transcript"] = expense_data.get("_transcript", "")
+                    save_pending(from_number, updated)
+                    send_transaction_confirmation(from_number, updated)
+                else:
+                    # Not a correction — remind user of options
+                    delete_pending(from_number)
+                    send_message(from_number,
+                        "❌ Entry discarded.\n\n"
+                        "Tap ✅ Save, ✏️ Edit, or ❌ Cancel on the buttons above.\n"
+                        "Or just send a new expense like 'spent 200 on lunch'."
+                    )
                 return jsonify({"status": "ok"}), 200
 
         # Commands
