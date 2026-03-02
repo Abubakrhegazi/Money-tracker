@@ -61,9 +61,11 @@ import re
 
 _GREETING_PATTERNS = re.compile(
     r'^\s*(hi|hello|hey|yo|sup|hola|morning|good\s*(morning|evening|afternoon|night)|'
-    r'مرحبا|اهلا|هاي|صباح|مساء|السلام|سلام|ازيك|عامل|كيف|شكرا|thanks|thank you|ok|okay|bye|cool|nice|great|lol|haha|wow|yes|no|yep|nah|mhm)\s*[!?.]*\s*$',
+    r'مرحبا|اهلا|هاي|صباح|مساء|السلام|سلام|ازيك|عامل|كيف|شكرا|thanks|thank you|bye|cool|nice|great|lol|haha|wow)\s*[!?.]*\s*$',
     re.IGNORECASE
 )
+
+_CANCEL_WORDS = {'cancel', 'nevermind', 'never mind', 'stop', 'undo', 'nope', 'nah', 'الغي', 'لا'}
 
 def is_greeting(text: str) -> bool:
     """Fast check: is this a greeting/chitchat with no financial content?"""
@@ -71,7 +73,10 @@ def is_greeting(text: str) -> bool:
         return True
     # If the message has no digits at all and is short, it's likely chitchat
     if len(text) < 30 and not re.search(r'\d', text):
-        # Check for any financial keywords
+        # But NOT if it's a cancel/confirm word
+        lower = text.strip().lower()
+        if lower in _CANCEL_WORDS or lower in {'yes', 'y', 'no', 'n', 'ok', 'okay', 'yep', 'nah'}:
+            return False
         financial_kw = re.compile(
             r'(spent|paid|bought|cost|received|earned|salary|مرتب|صرفت|دفعت|اشتريت|استلمت|جالي|الف|مية)',
             re.IGNORECASE
@@ -79,6 +84,14 @@ def is_greeting(text: str) -> bool:
         if not financial_kw.search(text):
             return True
     return False
+
+def is_cancel(text: str) -> bool:
+    """Check if user wants to cancel."""
+    return text.strip().lower() in _CANCEL_WORDS
+
+# Message dedup — Meta sometimes sends the same webhook twice
+_processed_messages: dict[str, float] = {}
+MSG_DEDUP_WINDOW = 30  # seconds
 
 
 def cat_emoji(category: str) -> str:
@@ -498,6 +511,16 @@ def webhook():
             send_message(from_number, "⏳ Slow down! Try again in a moment.")
             return jsonify({"status": "ok"}), 200
 
+        # Dedup — Meta often fires webhook twice for same message
+        msg_id = message.get("id", "")
+        now_ts = time()
+        if msg_id:
+            # Clean old entries
+            _processed_messages.update({k: v for k, v in _processed_messages.items() if now_ts - v < MSG_DEDUP_WINDOW})
+            if msg_id in _processed_messages:
+                return jsonify({"status": "ok"}), 200
+            _processed_messages[msg_id] = now_ts
+
         # Onboarding
         if is_new_user(from_number):
             send_message(from_number,
@@ -714,9 +737,9 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
                     + alert
                 )
                 return jsonify({"status": "ok"}), 200
-            elif body.lower() in ["no", "n", "لا", "cancel"]:
+            elif body.lower() in ["no", "n", "لا", "cancel", "nevermind", "never mind", "stop", "undo", "nope", "nah", "الغي"]:
                 delete_pending(from_number)
-                send_message(from_number, "❌ Cancelled.")
+                send_message(from_number, "❌ Cancelled, nothing was saved.")
                 return jsonify({"status": "ok"}), 200
             else:
                 updated = apply_correction(expense_data, body)
@@ -762,8 +785,14 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
         elif cmd.startswith("/"):
             send_message(from_number, "Unknown command. Send /help to see all commands.")
         else:
+            # Cancel intent — check BEFORE greeting/transaction parsing
+            if is_cancel(body):
+                pending = get_pending(from_number)
+                if pending:
+                    delete_pending(from_number)
+                send_message(from_number, "❌ Cancelled, nothing was saved.")
             # Pre-filter: catch greetings/chitchat without calling AI
-            if is_greeting(body):
+            elif is_greeting(body):
                 send_message(from_number,
                     "👋 Hey! I'm your finance tracker.\n\n"
                     "Log an expense: 'spent 50 on lunch'\n"
