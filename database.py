@@ -447,13 +447,13 @@ def get_pending(user_id: str) -> tuple[dict, str, dict | None] | None:
     finally:
         session.close()
 
-def delete_pending(user_id: str):
+def delete_pending(user_id: str) -> bool:
+    """Delete pending transaction. Returns True if something was actually deleted."""
     session = Session()
     try:
-        p = session.query(PendingTransaction).filter_by(user_id=user_id).first()
-        if p:
-            session.delete(p)
-            session.commit()
+        count = session.query(PendingTransaction).filter_by(user_id=user_id).delete()
+        session.commit()
+        return count > 0
     finally:
         session.close()
 

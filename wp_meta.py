@@ -544,20 +544,21 @@ def webhook():
 
                 if button_id == "txn_confirm" and pending:
                     txn, _state, _ctx = pending
-                    delete_pending(from_number)
-                    user_id = get_primary_id(from_number)
-                    save_expense(user_id, txn, txn.get("_transcript", ""))
-                    etype = txn.get("type", "expense")
-                    alert = ""
-                    if etype == "expense":
-                        alert = check_budget_alert(user_id, txn.get("category", "other"), txn["amount"])
-                    send_message(from_number,
-                        f"💾 Saved!\n"
-                        f"{type_emoji(etype)} {etype.upper()}\n"
-                        f"💰 {txn['amount']} {txn.get('currency', 'EGP')} — {txn.get('category', 'other')}\n"
-                        f"🏪 {txn.get('merchant') or 'N/A'}"
-                        + alert
-                    )
+                    # Atomic: only save if WE are the one who deleted the pending
+                    if delete_pending(from_number):
+                        user_id = get_primary_id(from_number)
+                        save_expense(user_id, txn, txn.get("_transcript", ""))
+                        etype = txn.get("type", "expense")
+                        alert = ""
+                        if etype == "expense":
+                            alert = check_budget_alert(user_id, txn.get("category", "other"), txn["amount"])
+                        send_message(from_number,
+                            f"💾 Saved!\n"
+                            f"{type_emoji(etype)} {etype.upper()}\n"
+                            f"💰 {txn['amount']} {txn.get('currency', 'EGP')} — {txn.get('category', 'other')}\n"
+                            f"🏪 {txn.get('merchant') or 'N/A'}"
+                            + alert
+                        )
 
                 elif button_id == "txn_edit" and pending:
                     txn, _state, _ctx = pending
@@ -663,6 +664,12 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
         cmd = body.lower().split()[0] if body else ""
         args = body[len(cmd):].strip()
 
+        # ── CANCEL INTENT ─ checked FIRST before anything else ───────
+        if is_cancel(body):
+            delete_pending(from_number)  # clear any pending, ignore return
+            send_message(from_number, "❌ Cancelled, nothing was saved.")
+            return jsonify({"status": "ok"}), 200
+
         pending = get_pending(from_number)
 
         # Awaiting budget amount from list selection
@@ -722,22 +729,23 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
         if pending and pending[1] == "confirm":
             expense_data, _state, _ctx = pending
             if body.lower() in ["yes", "y", "يس", "اه", "آه", "ok", "اوك"]:
-                delete_pending(from_number)
-                user_id = get_primary_id(from_number)
-                save_expense(user_id, expense_data, expense_data.get("_transcript", ""))
-                etype = expense_data.get("type", "expense")
-                alert = ""
-                if etype == "expense":
-                    alert = check_budget_alert(user_id, expense_data.get("category", "other"), expense_data["amount"])
-                send_message(from_number,
-                    f"💾 Saved!\n"
-                    f"{type_emoji(etype)} {etype.upper()}\n"
-                    f"💰 {expense_data['amount']} {expense_data.get('currency', 'EGP')} — {expense_data.get('category', 'other')}\n"
-                    f"🏪 {expense_data.get('merchant') or 'N/A'}"
-                    + alert
-                )
+                # Atomic: only save if WE are the one who deleted the pending
+                if delete_pending(from_number):
+                    user_id = get_primary_id(from_number)
+                    save_expense(user_id, expense_data, expense_data.get("_transcript", ""))
+                    etype = expense_data.get("type", "expense")
+                    alert = ""
+                    if etype == "expense":
+                        alert = check_budget_alert(user_id, expense_data.get("category", "other"), expense_data["amount"])
+                    send_message(from_number,
+                        f"💾 Saved!\n"
+                        f"{type_emoji(etype)} {etype.upper()}\n"
+                        f"💰 {expense_data['amount']} {expense_data.get('currency', 'EGP')} — {expense_data.get('category', 'other')}\n"
+                        f"🏪 {expense_data.get('merchant') or 'N/A'}"
+                        + alert
+                    )
                 return jsonify({"status": "ok"}), 200
-            elif body.lower() in ["no", "n", "لا", "cancel", "nevermind", "never mind", "stop", "undo", "nope", "nah", "الغي"]:
+            elif body.lower() in ["no", "n", "لا"]:
                 delete_pending(from_number)
                 send_message(from_number, "❌ Cancelled, nothing was saved.")
                 return jsonify({"status": "ok"}), 200
@@ -785,14 +793,8 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
         elif cmd.startswith("/"):
             send_message(from_number, "Unknown command. Send /help to see all commands.")
         else:
-            # Cancel intent — check BEFORE greeting/transaction parsing
-            if is_cancel(body):
-                pending = get_pending(from_number)
-                if pending:
-                    delete_pending(from_number)
-                send_message(from_number, "❌ Cancelled, nothing was saved.")
             # Pre-filter: catch greetings/chitchat without calling AI
-            elif is_greeting(body):
+            if is_greeting(body):
                 send_message(from_number,
                     "👋 Hey! I'm your finance tracker.\n\n"
                     "Log an expense: 'spent 50 on lunch'\n"
