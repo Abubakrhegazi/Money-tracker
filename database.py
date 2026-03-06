@@ -230,28 +230,6 @@ def get_monthly_summary(telegram_user_id: str):
         return expense_total, breakdown, len(entries), income_total
     finally:
         session.close()
-def get_monthly_summary_sync(telegram_user_id: str):
-    telegram_user_id = get_primary_id(telegram_user_id)
-    session = Session()
-    try:
-        now = datetime.utcnow()
-        from sqlalchemy import extract
-        entries = session.query(Expense).filter(
-            Expense.telegram_user_id == telegram_user_id,
-            Expense.is_deleted != True,
-            extract('month', Expense.created_at) == now.month,
-            extract('year', Expense.created_at) == now.year
-        ).all()
-        expense_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "expense")
-        income_total = sum(e.amount for e in entries if (e.entry_type or "expense") == "income")
-        breakdown = {}
-        for e in entries:
-            if (e.entry_type or "expense") == "expense":
-                cat = e.category or "other"
-                breakdown[cat] = breakdown.get(cat, 0) + e.amount
-        return expense_total, breakdown, len(entries), income_total
-    finally:
-        session.close()
 def get_recent_expenses(telegram_user_id: str, limit: int = 10):
     telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
@@ -522,16 +500,6 @@ def cleanup_expired_pending():
 
 # ── User helpers ──────────────────────────────────────────────────────────
 
-def is_new_user(user_id: str) -> bool:
-    """Returns True if this user has never recorded anything."""
-    primary = get_primary_id(user_id)
-    session = Session()
-    try:
-        count = session.query(Expense).filter_by(telegram_user_id=primary).count()
-        return count == 0
-    finally:
-        session.close()
-
 # ── Admin helpers ─────────────────────────────────────────────────────────
 
 from sqlalchemy import func, desc, distinct, case
@@ -757,24 +725,6 @@ def get_global_stats(days=30):
             "top_merchants": [{"name": m[0], "total": float(m[1])} for m in top_merchants],
             "daily": daily_data,
         }
-    finally:
-        session.close()
-
-
-def delete_user_data(user_id: str):
-    session = Session()
-    try:
-        session.query(Expense).filter_by(telegram_user_id=user_id).delete()
-        session.query(Budget).filter_by(telegram_user_id=user_id).delete()
-        session.query(PendingTransaction).filter_by(user_id=user_id).delete()
-        session.query(UserLink).filter(
-            (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)
-        ).delete(synchronize_session=False)
-        session.commit()
-        return True
-    except Exception:
-        session.rollback()
-        return False
     finally:
         session.close()
 

@@ -3,6 +3,7 @@ Notification engine — generates daily/weekly spending summaries and sends them
 
 Runs as hourly jobs inside APScheduler, embedded in the Telegram bot process (main.py).
 """
+import logging
 import os
 import traceback
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("notifications")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 CATEGORY_EMOJI = {
@@ -36,10 +39,10 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown")
         }, timeout=10)
         if resp.status_code == 200:
             return True
-        print(f"[NOTIFY] Telegram send failed for {chat_id}: {resp.status_code} {resp.text}")
+        logger.warning(f"Telegram send failed for {chat_id}: {resp.status_code} {resp.text}")
         return False
     except Exception as e:
-        print(f"[NOTIFY] Telegram send error for {chat_id}: {e}")
+        logger.error(f"Telegram send error for {chat_id}: {e}")
         return False
 
 # ── Summary generators ──────────────────────────────────────────────────
@@ -200,7 +203,7 @@ def run_daily_check():
     """Hourly job: check each user's preferred time and send daily summary if due."""
     from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user
 
-    print("[SCHEDULER] Running daily notification check...")
+    logger.info("Running daily notification check...")
     users = get_all_notification_users()
 
     for u in users:
@@ -239,12 +242,11 @@ def run_daily_check():
                 success = send_telegram_message(u["user_id"], summary)
                 if success:
                     mark_notification_sent(u["user_id"], "daily")
-                    print(f"[NOTIFY] Daily summary sent to {u['user_id']}")
+                    logger.info(f"Daily summary sent to {u['user_id']}")
                 else:
                     increment_notification_failure(u["user_id"])
         except Exception as e:
-            print(f"[NOTIFY] Error sending daily to {u['user_id']}: {e}")
-            traceback.print_exc()
+            logger.error(f"Error sending daily to {u['user_id']}: {e}", exc_info=True)
             increment_notification_failure(u["user_id"])
 
 
@@ -252,7 +254,7 @@ def run_weekly_check():
     """Hourly job: check each user's preferred day/time and send weekly summary if due."""
     from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user
 
-    print("[SCHEDULER] Running weekly notification check...")
+    logger.info("Running weekly notification check...")
     users = get_all_notification_users()
 
     for u in users:
@@ -296,10 +298,9 @@ def run_weekly_check():
                 success = send_telegram_message(u["user_id"], summary)
                 if success:
                     mark_notification_sent(u["user_id"], "weekly")
-                    print(f"[NOTIFY] Weekly summary sent to {u['user_id']}")
+                    logger.info(f"Weekly summary sent to {u['user_id']}")
                 else:
                     increment_notification_failure(u["user_id"])
         except Exception as e:
-            print(f"[NOTIFY] Error sending weekly to {u['user_id']}: {e}")
-            traceback.print_exc()
+            logger.error(f"Error sending weekly to {u['user_id']}: {e}", exc_info=True)
             increment_notification_failure(u["user_id"])

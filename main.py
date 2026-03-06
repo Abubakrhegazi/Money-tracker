@@ -8,6 +8,7 @@ from database import (
     init_db, save_expense, get_monthly_summary, get_recent_expenses,
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
     get_notification_settings, update_notification_settings, delete_user_data,
+    get_link_token,
 )
 from datetime import datetime
 
@@ -54,8 +55,6 @@ def confirm_keyboard():
             InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
         ]
     ])
-
-import re
 
 _GREETING_PATTERNS = re.compile(
     r'^\s*(hi|hello|hey|yo|sup|hola|morning|good\s*(morning|evening|afternoon|night)|'
@@ -200,55 +199,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=confirm_keyboard()
     )
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    action = query.data
-
-    if action == "confirm":
-        expense = context.user_data.get("pending_expense")
-        transcript = context.user_data.get("transcript", "")
-        user_id = str(query.from_user.id)
-        
-        save_expense(user_id, expense, transcript)  # 👈 this line
-
-        await query.edit_message_text(
-            f"💾 Saved!\n\n"
-            f"💰 {expense['amount']} {expense['currency']} — {expense['category']}\n"
-            f"🏪 {expense.get('merchant') or 'N/A'} | 📅 {expense.get('date', 'today')}"
-        )
-
-    elif action == "edit":
-        await query.edit_message_text(
-            "✏️ What would you like to correct? Tell me what's wrong.\n\n"
-            "Example: _'amount should be 300'_ or _'category is transport not food'_",
-            parse_mode="Markdown"
-        )
-        return WAITING_FOR_EDIT
-
-    elif action == "cancel":
-        context.user_data.pop("pending_expense", None)
-        context.user_data.pop("transcript", None)
-        await query.edit_message_text("❌ Cancelled. Expense discarded.")
-
-    elif action == "deleteaccount_confirm":
-        user_id = str(query.from_user.id)
-        success = delete_user_data(user_id)
-        if success:
-            await query.edit_message_text(
-                "🗑 *Account Deleted*\n\n"
-                "All your data has been permanently removed.\n"
-                "Send /start if you'd like to begin fresh.",
-                parse_mode="Markdown"
-            )
-            logger.info(f"User {user_id} deleted their account")
-        else:
-            await query.edit_message_text("❌ Something went wrong. Please try again later.")
-
-    elif action == "deleteaccount_cancel":
-        await query.edit_message_text("✅ Account deletion cancelled. Your data is safe.")
-
 async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     correction = update.message.text
     original_expense = context.user_data.get("pending_expense", {})
@@ -362,9 +312,6 @@ def category_emoji(category: str) -> str:
         "refund": "🔄", "investment": "📈", "other_income": "💰"
     }
     return emojis.get(category, "📦")
-from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     expenses = get_recent_expenses(user_id, limit=10)
@@ -407,6 +354,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcript = context.user_data.get("transcript", "")
         user_id = str(query.from_user.id)
         save_expense(user_id, expense, transcript)
+        context.user_data.pop("pending_expense", None)
+        context.user_data.pop("transcript", None)
         await query.edit_message_text(
             f"💾 Saved!\n\n"
             f"💰 {expense['amount']} {expense['currency']} — {expense['category']}\n"
@@ -467,6 +416,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return WAITING_FOR_EDIT
+
+    elif action == "deleteaccount_confirm":
+        user_id = str(query.from_user.id)
+        success = delete_user_data(user_id)
+        if success:
+            await query.edit_message_text(
+                "🗑 *Account Deleted*\n\n"
+                "All your data has been permanently removed.\n"
+                "Send /start if you'd like to begin fresh.",
+                parse_mode="Markdown"
+            )
+            logger.info(f"User {user_id} deleted their account")
+        else:
+            await query.edit_message_text("❌ Something went wrong. Please try again later.")
+
+    elif action == "deleteaccount_cancel":
+        await query.edit_message_text("✅ Account deletion cancelled. Your data is safe.")
+
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     raw = create_login_token(user_id, minutes=10)
@@ -480,7 +447,7 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         budgets = get_budget(user_id)
         if budgets:
-            total, breakdown, _ = get_monthly_summary(user_id)
+            total, breakdown, *_ = get_monthly_summary(user_id)
             reply = "🎯 *Monthly Budgets*\n\n"
             for cat, amount in budgets.items():
                 spent = breakdown.get(cat, 0)
@@ -746,10 +713,6 @@ def main():
     app.add_handler(CommandHandler("deleteaccount", deleteaccount_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_edit_message
-    ))
 
     # ── Error handler ─────────────────────────────────────────────
     app.add_error_handler(error_handler)

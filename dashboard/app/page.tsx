@@ -149,18 +149,27 @@ export default function LandingPage() {
                   {loading ? "Entering..." : "Enter Dashboard"}
                 </ShimmerButton>
               ) : (
-                <ShimmerButton
-                  className="text-base font-semibold px-8 py-3"
-                  background="rgba(124, 58, 237, 1)"
+                <a
+                  href="https://t.me/walletTrackinggBot"
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
-                  <Send className="w-4 h-4 mr-2 inline" />
-                  Start on Telegram
-                </ShimmerButton>
+                  <ShimmerButton
+                    className="text-base font-semibold px-8 py-3"
+                    background="rgba(124, 58, 237, 1)"
+                  >
+                    <Send className="w-4 h-4 mr-2 inline" />
+                    Start on Telegram
+                  </ShimmerButton>
+                </a>
               )}
-              <button className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group">
+              <a
+                href="#features"
+                className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group"
+              >
                 Learn more
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </button>
+              </a>
             </div>
           </BlurFade>
         </div>
@@ -171,7 +180,7 @@ export default function LandingPage() {
 
       {/* ── Stats ── */}
       <section className="py-20 px-4 border-y border-white/5">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-8 text-center">
+        <div className="max-w-4xl mx-auto grid grid-cols-3 gap-4 md:gap-8 text-center">
           {[
             { value: 1000, suffix: "+", label: "Transactions logged" },
             { value: 10, suffix: "+", label: "Active users" },
@@ -191,7 +200,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Features ── */}
-      <section className="py-24 px-4">
+      <section id="features" className="py-24 px-4">
         <div className="max-w-5xl mx-auto">
           <BlurFade inView>
             <div className="text-center mb-16">
@@ -300,13 +309,19 @@ export default function LandingPage() {
                 {loading ? "Entering..." : "Open Dashboard"}
               </ShimmerButton>
             ) : (
-              <ShimmerButton
-                className="text-lg font-semibold px-10 py-4"
-                background="rgba(124, 58, 237, 1)"
+              <a
+                href="https://t.me/walletTrackinggBot"
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <Send className="w-5 h-5 mr-2 inline" />
-                Open Aura on Telegram
-              </ShimmerButton>
+                <ShimmerButton
+                  className="text-lg font-semibold px-10 py-4"
+                  background="rgba(124, 58, 237, 1)"
+                >
+                  <Send className="w-5 h-5 mr-2 inline" />
+                  Open Aura on Telegram
+                </ShimmerButton>
+              </a>
             )}
           </BlurFade>
         </div>
@@ -326,6 +341,14 @@ export default function LandingPage() {
             <span>Aura — Your personal finance tracker</span>
           </div>
           <div className="flex gap-6">
+            <a
+              href="https://t.me/walletTrackinggBot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-gray-400 transition"
+            >
+              Telegram
+            </a>
             <a href="/privacy" className="hover:text-gray-400 transition">
               Privacy
             </a>

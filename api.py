@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 import traceback
@@ -37,7 +38,12 @@ from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 security = HTTPBearer()
 
 # ── Secrets ───────────────────────────────────────────────────────────────
@@ -142,12 +148,6 @@ async def manual_backup(request: Request):
     result = trigger_backup()
     logger.info(f"Manual backup triggered: {result}")
     return result
-
-# ── Startup ──────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
 
 # ── Auth ──────────────────────────────────────────────────────────────
 
@@ -352,9 +352,7 @@ async def telegram_link_auth(request: Request, body: TelegramLinkAuthBody):
     try:
         telegram_user_id = consume_login_token(body.token)
     except Exception as e:
-        print(f"[ERROR] consume_login_token failed: {e}")
-        traceback.print_exc()
-        # Never leak internal error details to clients
+        logger.error(f"consume_login_token failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
     if not telegram_user_id:

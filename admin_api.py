@@ -172,7 +172,7 @@ async def admin_logout(request: Request, response: Response):
             # Revoke all sessions for this admin
             sessions = get_active_admin_sessions()
             for s in sessions:
-                if s.get("username") == username:
+                if s.get("admin") == username:
                     revoke_admin_session(s["id"])
         except JWTError:
             pass  # token already invalid, just clear cookies
