@@ -1,10 +1,13 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint, Text
+import logging
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 import secrets
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -14,22 +17,33 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///spending_tracker.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=1800,
+)
 Session = sessionmaker(bind=engine)
 
 class Expense(Base):
     __tablename__ = "expenses"
+    __table_args__ = (
+        Index("ix_expenses_user_date", "telegram_user_id", "created_at"),
+        Index("ix_expenses_user_cat", "telegram_user_id", "category"),
+    )
 
     id = Column(Integer, primary_key=True)
-    telegram_user_id = Column(String, nullable=False)
+    telegram_user_id = Column(String, nullable=False, index=True)
     amount = Column(Float, nullable=False)
     currency = Column(String, default="EGP")
-    category = Column(String)
+    category = Column(String, index=True)
     merchant = Column(String, nullable=True)
     date = Column(String)
     transcript = Column(String)
-    entry_type = Column(String, default="expense")  # "expense" or "income"
-    created_at = Column(DateTime, default=datetime.utcnow)
+    entry_type = Column(String, default="expense", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    is_deleted = Column(Boolean, default=False)
 
 class LoginToken(Base):
     __tablename__ = "login_tokens"
@@ -135,6 +149,13 @@ def init_db():
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE expenses ADD COLUMN entry_type VARCHAR DEFAULT 'expense'"))
         Base.metadata.create_all(engine)
+        # Add is_deleted column if missing
+        if insp.has_table("expenses"):
+            cols = [c["name"] for c in insp.get_columns("expenses")]
+            if "is_deleted" not in cols:
+                logger.info("[MIGRATION] Adding is_deleted column to expenses")
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE expenses ADD COLUMN is_deleted BOOLEAN DEFAULT false"))
         # Normalize legacy categories to fixed list
         VALID_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "other",
                       "salary", "freelance", "gift", "refund", "investment", "other_income"}
@@ -147,10 +168,10 @@ def init_db():
                         {"new": new_cat, "old": old_cat}
                     )
                     if result.rowcount > 0:
-                        print(f"[MIGRATION] Renamed {result.rowcount} expenses: '{old_cat}' → '{new_cat}'")
+                        logger.info(f"[MIGRATION] Renamed {result.rowcount} expenses: '{old_cat}' → '{new_cat}'")
     except Exception as e:
-        print(f"[WARNING] Could not connect to database during init: {e}")
-        print("[WARNING] Tables will be created on first successful connection.")
+        logger.warning(f"Could not connect to database during init: {e}")
+        logger.warning("Tables will be created on first successful connection.")
 
 def save_expense(telegram_user_id: str, expense: dict, transcript: str):
     primary_id = get_primary_id(telegram_user_id)
@@ -178,8 +199,9 @@ def save_expense(telegram_user_id: str, expense: dict, transcript: str):
 def get_expenses(telegram_user_id: str):
     session = Session()
     try:
-        return session.query(Expense).filter_by(
-            telegram_user_id=telegram_user_id
+        return session.query(Expense).filter(
+            Expense.telegram_user_id == telegram_user_id,
+            Expense.is_deleted != True
         ).order_by(Expense.created_at.desc()).all()
     finally:
         session.close()
@@ -190,6 +212,7 @@ def get_monthly_summary(telegram_user_id: str):
         now = datetime.utcnow()
         entries = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
+            Expense.is_deleted != True,
             extract('month', Expense.created_at) == now.month,
             extract('year', Expense.created_at) == now.year
         ).all()
@@ -215,6 +238,7 @@ def get_monthly_summary_sync(telegram_user_id: str):
         from sqlalchemy import extract
         entries = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
+            Expense.is_deleted != True,
             extract('month', Expense.created_at) == now.month,
             extract('year', Expense.created_at) == now.year
         ).all()
@@ -229,26 +253,28 @@ def get_monthly_summary_sync(telegram_user_id: str):
     finally:
         session.close()
 def get_recent_expenses(telegram_user_id: str, limit: int = 10):
-    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
-        return session.query(Expense).filter_by(
-            telegram_user_id=telegram_user_id
+        return session.query(Expense).filter(
+            Expense.telegram_user_id == telegram_user_id,
+            Expense.is_deleted != True
         ).order_by(Expense.created_at.desc()).limit(limit).all()
     finally:
         session.close()
 
 def delete_expense(telegram_user_id: str, expense_id: int) -> bool:
-    telegram_user_id = get_primary_id(telegram_user_id)  # add this line
+    """Soft delete - marks expense as deleted instead of removing."""
+    telegram_user_id = get_primary_id(telegram_user_id)
     session = Session()
     try:
         expense = session.query(Expense).filter_by(
             id=expense_id,
-            telegram_user_id=telegram_user_id  # security: users can only delete their own
-        ).first()
+            telegram_user_id=telegram_user_id
+        ).filter(Expense.is_deleted != True).first()
         if not expense:
             return False
-        session.delete(expense)
+        expense.is_deleted = True
         session.commit()
         return True
     except Exception as e:
@@ -355,6 +381,7 @@ def get_category_spending_this_month(telegram_user_id: str, category: str) -> fl
         now = datetime.utcnow()
         expenses = session.query(Expense).filter(
             Expense.telegram_user_id == telegram_user_id,
+            Expense.is_deleted != True,
             Expense.category == category,
             Expense.entry_type != "income",
             extract('month', Expense.created_at) == now.month,
@@ -983,6 +1010,7 @@ def get_daily_transactions(user_id: str, date_obj):
         day_end = day_start + timedelta(days=1)
         return session.query(Expense).filter(
             Expense.telegram_user_id == user_id,
+            Expense.is_deleted != True,
             Expense.created_at >= day_start,
             Expense.created_at < day_end
         ).all()
@@ -997,8 +1025,47 @@ def get_weekly_transactions(user_id: str, start_date, end_date):
     try:
         return session.query(Expense).filter(
             Expense.telegram_user_id == user_id,
+            Expense.is_deleted != True,
             Expense.created_at >= start_date,
             Expense.created_at < end_date
         ).all()
+    finally:
+        session.close()
+
+
+def is_new_user(user_id: str) -> bool:
+    """Check if user registered today (no transactions before today)."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        oldest = session.query(Expense).filter(
+            Expense.telegram_user_id == user_id,
+            Expense.is_deleted != True
+        ).order_by(Expense.created_at.asc()).first()
+        if not oldest or not oldest.created_at:
+            return True
+        return oldest.created_at.date() == datetime.utcnow().date()
+    finally:
+        session.close()
+
+
+def delete_user_data(user_id: str) -> bool:
+    """Permanently delete ALL user data (GDPR). Irreversible."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        session.query(Expense).filter_by(telegram_user_id=user_id).delete()
+        session.query(Budget).filter_by(telegram_user_id=user_id).delete()
+        session.query(NotificationSettings).filter_by(telegram_user_id=user_id).delete()
+        session.query(UserLink).filter(
+            (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)
+        ).delete(synchronize_session=False)
+        session.commit()
+        logger.info(f"All data deleted for user {user_id}")
+        return True
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to delete data for user {user_id}: {e}")
+        return False
     finally:
         session.close()

@@ -1,11 +1,13 @@
 import os
 import json
 import re
+import signal
+import logging
 from groq import Groq
 from database import (
     init_db, save_expense, get_monthly_summary, get_recent_expenses,
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
-    get_notification_settings, update_notification_settings,
+    get_notification_settings, update_notification_settings, delete_user_data,
 )
 from datetime import datetime
 
@@ -17,6 +19,13 @@ from telegram.ext import (
     Application, MessageHandler, CallbackQueryHandler,
     filters, ContextTypes, ConversationHandler, CommandHandler
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("bot")
 
 load_dotenv()
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -222,6 +231,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("pending_expense", None)
         context.user_data.pop("transcript", None)
         await query.edit_message_text("❌ Cancelled. Expense discarded.")
+
+    elif action == "deleteaccount_confirm":
+        user_id = str(query.from_user.id)
+        success = delete_user_data(user_id)
+        if success:
+            await query.edit_message_text(
+                "🗑 *Account Deleted*\n\n"
+                "All your data has been permanently removed.\n"
+                "Send /start if you'd like to begin fresh.",
+                parse_mode="Markdown"
+            )
+            logger.info(f"User {user_id} deleted their account")
+        else:
+            await query.edit_message_text("❌ Something went wrong. Please try again later.")
+
+    elif action == "deleteaccount_cancel":
+        await query.edit_message_text("✅ Account deletion cancelled. Your data is safe.")
 
 async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     correction = update.message.text
@@ -594,6 +620,93 @@ async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TY
             "`/notifications off`",
             parse_mode="Markdown"
         )
+# ── /start onboarding ──────────────────────────────────────────────
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 *Welcome to Aura — your personal finance tracker!*\n\n"
+        "🎯 *Here's what I can do:*\n\n"
+        "💸 *Track spending* — just tell me what you spent:\n"
+        "   _\"spent 150 on lunch\"_ or _\"paid 500 for uber\"_\n\n"
+        "💰 *Track income* — log what you earned:\n"
+        "   _\"received 5000 salary\"_ or _\"got 200 freelance\"_\n\n"
+        "🎙 *Voice messages* — send a voice note and I'll transcribe it!\n\n"
+        "📊 *Commands:*\n"
+        "/summary — monthly overview\n"
+        "/history — recent transactions\n"
+        "/budget food 3000 — set a budget\n"
+        "/dashboard — open web dashboard\n"
+        "/notifications — configure daily/weekly summaries\n"
+        "/help — all commands\n\n"
+        "✨ _Try sending your first expense now!_",
+        parse_mode="Markdown"
+    )
+
+# ── /help command ─────────────────────────────────────────────────
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📖 *All Commands*\n\n"
+        "💸 *Tracking*\n"
+        "  Just type: _\"spent 50 on coffee\"_\n"
+        "  Or send a voice message!\n\n"
+        "📊 *Reports*\n"
+        "  /summary — monthly spending overview\n"
+        "  /history — last 10 transactions (edit/delete)\n\n"
+        "🎯 *Budgets*\n"
+        "  /budget — view all budgets\n"
+        "  /budget food 3000 — set budget for a category\n\n"
+        "🔔 *Notifications*\n"
+        "  /notifications — view settings\n"
+        "  /notifications daily — toggle daily summary\n"
+        "  /notifications weekly — toggle weekly summary\n"
+        "  /notifications time 9pm — set summary time\n"
+        "  /notifications off — disable all\n\n"
+        "📱 *Other*\n"
+        "  /dashboard — open web dashboard\n"
+        "  /link — link WhatsApp account\n"
+        "  /deleteaccount — delete all your data\n\n"
+        "🔒 *Categories:*\n"
+        "  food | transport | shopping | bills\n"
+        "  entertainment | health | education | other",
+        parse_mode="Markdown"
+    )
+
+# ── /deleteaccount command ────────────────────────────────────────
+
+async def deleteaccount_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⚠️ Yes, delete everything", callback_data="deleteaccount_confirm"),
+            InlineKeyboardButton("❌ Cancel", callback_data="deleteaccount_cancel"),
+        ]
+    ])
+    await update.message.reply_text(
+        "⚠️ *Delete Account*\n\n"
+        "This will *permanently* delete ALL your data:\n"
+        "• All transactions\n"
+        "• All budgets\n"
+        "• Notification settings\n"
+        "• Linked accounts\n\n"
+        "_This action cannot be undone._\n\n"
+        "Are you sure?",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# ── Global error handler ──────────────────────────────────────────
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Global error handler — logs error, sends friendly fallback to user."""
+    logger.error(f"Unhandled exception: {context.error}", exc_info=context.error)
+    if update and isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "❌ Something went wrong. Please try again.\n"
+                "If this keeps happening, send /help."
+            )
+        except Exception:
+            pass  # can't even send error message, ignore
 
 
 def main():
@@ -603,15 +716,26 @@ def main():
     # ── Start APScheduler ─────────────────────────────────────────
     from apscheduler.schedulers.background import BackgroundScheduler
     from notifications import run_daily_check, run_weekly_check
+    from apscheduler.triggers.cron import CronTrigger
+    from backup import run_backup
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_daily_check, "interval", hours=1, id="daily_check",
-                      next_run_time=datetime.now())  # run once on startup
+                      next_run_time=datetime.now())
     scheduler.add_job(run_weekly_check, "interval", hours=1, id="weekly_check")
+    scheduler.add_job(
+        run_backup,
+        trigger=CronTrigger(hour=3, minute=0, timezone="Africa/Cairo"),
+        id="daily_backup",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     scheduler.start()
-    print("[SCHEDULER] APScheduler started (daily + weekly checks every hour)")
+    logger.info("APScheduler started (notifications hourly, backup at 3am Cairo)")
 
     # ── Handlers ──────────────────────────────────────────────────
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("link", link_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(CommandHandler("summary", summary_command))
@@ -619,6 +743,7 @@ def main():
     app.add_handler(CommandHandler("dashboard", dashboard_command))
     app.add_handler(CommandHandler("budget", budget_command))
     app.add_handler(CommandHandler("notifications", notifications_command))
+    app.add_handler(CommandHandler("deleteaccount", deleteaccount_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(
@@ -626,9 +751,18 @@ def main():
         handle_edit_message
     ))
 
-    print("Bot is running...")
+    # ── Error handler ─────────────────────────────────────────────
+    app.add_error_handler(error_handler)
+
+    # ── Graceful shutdown ─────────────────────────────────────────
+    def shutdown(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down...")
+        scheduler.shutdown(wait=False)
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    logger.info("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
-
     main()

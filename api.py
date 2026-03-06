@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 import traceback
+import logging
+import time
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -12,8 +14,21 @@ from pydantic import BaseModel, Field
 import secrets
 import re
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense, delete_budget, get_notification_settings, update_notification_settings
-from sqlalchemy import extract
+from database import (
+    Session, Expense, get_monthly_summary, consume_login_token, create_login_token,
+    init_db, set_budget, get_budget, delete_expense, delete_budget,
+    get_notification_settings, update_notification_settings, delete_user_data, engine,
+)
+from sqlalchemy import extract, text
+from backup import run_backup as trigger_backup, get_last_backup_time
+
+# ── Structured logging ───────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("api")
 
 # ── Rate limiting ────────────────────────────────────────────────────────
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -31,8 +46,10 @@ JWT_SECRET = os.getenv("JWT_SECRET", "")
 if not JWT_SECRET:
     import secrets as _s
     JWT_SECRET = _s.token_hex(32)
-    print("[WARNING] JWT_SECRET not set — using random ephemeral secret. Set JWT_SECRET env var for production!")
+    logger.warning("JWT_SECRET not set — using random ephemeral secret. Set JWT_SECRET env var for production!")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+
+_start_time = time.time()
 
 # ── Rate limiter setup ───────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -83,11 +100,48 @@ app.add_middleware(SecurityHeadersMiddleware)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
-    print(f"[ERROR] {request.method} {request.url}\n{tb}")
+    logger.error(f"{request.method} {request.url}\n{tb}")
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
     )
+
+# ── Health check ─────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health_check():
+    """Health check — returns 200 if API + DB are OK."""
+    db_ok = False
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+    uptime = int(time.time() - _start_time)
+    status = "healthy" if db_ok else "degraded"
+    code = 200 if db_ok else 503
+    return JSONResponse(
+        status_code=code,
+        content={
+            "status": status,
+            "database": "connected" if db_ok else "unreachable",
+            "uptime_seconds": uptime,
+            "version": "1.0.0",
+            "last_backup": get_last_backup_time(),
+        }
+    )
+
+@app.post("/internal/backup")
+@limiter.limit("3/hour")
+async def manual_backup(request: Request):
+    """Trigger a manual backup. Secured by INTERNAL_API_KEY."""
+    api_key = request.headers.get("X-Internal-Api-Key", "")
+    if not INTERNAL_API_KEY or api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    result = trigger_backup()
+    logger.info(f"Manual backup triggered: {result}")
+    return result
 
 # ── Startup ──────────────────────────────────────────────────────────────
 
@@ -251,6 +305,19 @@ async def delete_user_budget(request: Request, category: str, user=Depends(get_c
     if not success:
         raise HTTPException(status_code=404, detail="Budget not found")
     return {"status": "deleted", "category": category}
+
+# ── Account Deletion ─────────────────────────────────────────────────
+
+@app.delete("/account")
+@limiter.limit("3/hour")
+async def delete_account(request: Request, user=Depends(get_current_user)):
+    """Delete all user data permanently (GDPR). Irreversible."""
+    user_id = user["sub"]
+    success = delete_user_data(user_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete account data")
+    logger.info(f"Account data deleted for user {user_id}")
+    return {"status": "deleted", "message": "All your data has been permanently removed"}
 
 # ── Notification Settings ─────────────────────────────────────────────
 

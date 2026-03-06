@@ -48,3 +48,5 @@ __pycache__/
 .env
 
 /VoiceNotes/
+spending_tracker.db
+wpBot.py
