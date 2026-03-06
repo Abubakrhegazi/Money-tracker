@@ -70,8 +70,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = "default-src 'self'"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         # Remove server identity headers
-        response.headers.pop("X-Powered-By", None)
-        response.headers.pop("server", None)
+        if "X-Powered-By" in response.headers:
+            del response.headers["X-Powered-By"]
+        if "server" in response.headers:
+            del response.headers["server"]
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
