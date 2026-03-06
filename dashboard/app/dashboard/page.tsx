@@ -625,6 +625,29 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        padding: '1.5rem 2rem',
+        textAlign: 'center',
+        color: '#6b6b80',
+        fontSize: '0.8rem',
+        display: 'flex',
+        justifyContent: 'center',
+        gap: '0.5rem',
+        flexWrap: 'wrap',
+      }}>
+        <span>© 2026 Aura</span>
+        <span>·</span>
+        <a href="/privacy" style={{ color: '#6b6b80', textDecoration: 'none' }}
+          onMouseOver={e => (e.currentTarget.style.color = '#7c6af7')}
+          onMouseOut={e => (e.currentTarget.style.color = '#6b6b80')}>Privacy Policy</a>
+        <span>·</span>
+        <a href="/terms" style={{ color: '#6b6b80', textDecoration: 'none' }}
+          onMouseOver={e => (e.currentTarget.style.color = '#7c6af7')}
+          onMouseOut={e => (e.currentTarget.style.color = '#6b6b80')}>Terms of Service</a>
+      </footer>
     </div>
   );
 }
