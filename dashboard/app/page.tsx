@@ -149,15 +149,13 @@ export default function LandingPage() {
                   {loading ? "Entering..." : "Enter Dashboard"}
                 </ShimmerButton>
               ) : (
-                <a href="https://t.me/walletTrackinggBot" target="_blank" rel="noopener noreferrer">
-                  <ShimmerButton
-                    className="text-base font-semibold px-8 py-3"
-                    background="rgba(124, 58, 237, 1)"
-                  >
-                    <Send className="w-4 h-4 mr-2 inline" />
-                    Start on Telegram
-                  </ShimmerButton>
-                </a>
+                <ShimmerButton
+                  className="text-base font-semibold px-8 py-3"
+                  background="rgba(124, 58, 237, 1)"
+                >
+                  <Send className="w-4 h-4 mr-2 inline" />
+                  Start on Telegram
+                </ShimmerButton>
               )}
               <button className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group">
                 Learn more
@@ -173,10 +171,10 @@ export default function LandingPage() {
 
       {/* ── Stats ── */}
       <section className="py-20 px-4 border-y border-white/5">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-8 text-center">
           {[
-            { value: 10000, suffix: "+", label: "Transactions logged" },
-            { value: 500, suffix: "+", label: "Active users" },
+            { value: 1000, suffix: "+", label: "Transactions logged" },
+            { value: 10, suffix: "+", label: "Active users" },
             { value: 99, suffix: "%", label: "Uptime" },
           ].map((stat, i) => (
             <BlurFade key={i} delay={0.1 * i} inView>
@@ -302,15 +300,13 @@ export default function LandingPage() {
                 {loading ? "Entering..." : "Open Dashboard"}
               </ShimmerButton>
             ) : (
-              <a href="https://t.me/walletTrackinggBot" target="_blank" rel="noopener noreferrer">
-                <ShimmerButton
-                  className="text-lg font-semibold px-10 py-4"
-                  background="rgba(124, 58, 237, 1)"
-                >
-                  <Send className="w-5 h-5 mr-2 inline" />
-                  Open Aura on Telegram
-                </ShimmerButton>
-              </a>
+              <ShimmerButton
+                className="text-lg font-semibold px-10 py-4"
+                background="rgba(124, 58, 237, 1)"
+              >
+                <Send className="w-5 h-5 mr-2 inline" />
+                Open Aura on Telegram
+              </ShimmerButton>
             )}
           </BlurFade>
         </div>
