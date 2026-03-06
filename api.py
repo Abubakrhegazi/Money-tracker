@@ -26,7 +26,7 @@ app = FastAPI()
 security = HTTPBearer()
 
 # ── Secrets — fail fast if missing ───────────────────────────────────────
-BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")  # only needed for /auth/telegram
 JWT_SECRET = os.environ["JWT_SECRET"]
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")  # for bot→API calls
 
