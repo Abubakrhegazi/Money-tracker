@@ -178,7 +178,6 @@ export default function LandingPage() {
             { value: 10000, suffix: "+", label: "Transactions logged" },
             { value: 500, suffix: "+", label: "Active users" },
             { value: 99, suffix: "%", label: "Uptime" },
-            { value: 0, suffix: " apps", label: "Need to install" },
           ].map((stat, i) => (
             <BlurFade key={i} delay={0.1 * i} inView>
               <div className="flex flex-col items-center gap-1">
