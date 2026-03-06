@@ -149,13 +149,15 @@ export default function LandingPage() {
                   {loading ? "Entering..." : "Enter Dashboard"}
                 </ShimmerButton>
               ) : (
-                <ShimmerButton
-                  className="text-base font-semibold px-8 py-3"
-                  background="rgba(124, 58, 237, 1)"
-                >
-                  <Send className="w-4 h-4 mr-2 inline" />
-                  Start on Telegram
-                </ShimmerButton>
+                <a href="https://t.me/walletTrackinggBot" target="_blank" rel="noopener noreferrer">
+                  <ShimmerButton
+                    className="text-base font-semibold px-8 py-3"
+                    background="rgba(124, 58, 237, 1)"
+                  >
+                    <Send className="w-4 h-4 mr-2 inline" />
+                    Start on Telegram
+                  </ShimmerButton>
+                </a>
               )}
               <button className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group">
                 Learn more
@@ -301,13 +303,15 @@ export default function LandingPage() {
                 {loading ? "Entering..." : "Open Dashboard"}
               </ShimmerButton>
             ) : (
-              <ShimmerButton
-                className="text-lg font-semibold px-10 py-4"
-                background="rgba(124, 58, 237, 1)"
-              >
-                <Send className="w-5 h-5 mr-2 inline" />
-                Open Aura on Telegram
-              </ShimmerButton>
+              <a href="https://t.me/walletTrackinggBot" target="_blank" rel="noopener noreferrer">
+                <ShimmerButton
+                  className="text-lg font-semibold px-10 py-4"
+                  background="rgba(124, 58, 237, 1)"
+                >
+                  <Send className="w-5 h-5 mr-2 inline" />
+                  Open Aura on Telegram
+                </ShimmerButton>
+              </a>
             )}
           </BlurFade>
         </div>
