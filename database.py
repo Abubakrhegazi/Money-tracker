@@ -122,6 +122,19 @@ def init_db():
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE expenses ADD COLUMN entry_type VARCHAR DEFAULT 'expense'"))
         Base.metadata.create_all(engine)
+        # Normalize legacy categories to fixed list
+        VALID_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "other",
+                      "salary", "freelance", "gift", "refund", "investment", "other_income"}
+        CAT_REMAP = {"transportation": "transport"}
+        if insp.has_table("expenses"):
+            with engine.begin() as conn:
+                for old_cat, new_cat in CAT_REMAP.items():
+                    result = conn.execute(
+                        text("UPDATE expenses SET category = :new WHERE lower(category) = :old"),
+                        {"new": new_cat, "old": old_cat}
+                    )
+                    if result.rowcount > 0:
+                        print(f"[MIGRATION] Renamed {result.rowcount} expenses: '{old_cat}' → '{new_cat}'")
     except Exception as e:
         print(f"[WARNING] Could not connect to database during init: {e}")
         print("[WARNING] Tables will be created on first successful connection.")

@@ -17,14 +17,16 @@ import {
 /* ── Color System ─────────────────────────────────────────── */
 const CATEGORY_COLORS: Record<string, string> = {
   food: "#f97316", transport: "#0ea5e9", shopping: "#a855f7",
-  bills: "#f43f5e", entertainment: "#eab308", health: "#10b981", other: "#64748b",
+  bills: "#f43f5e", entertainment: "#eab308", health: "#10b981",
+  education: "#6366f1", other: "#64748b",
   salary: "#22c55e", freelance: "#06b6d4", gift: "#ec4899",
   refund: "#8b5cf6", investment: "#14b8a6", other_income: "#f59e0b",
 };
 
 const CATEGORY_EMOJI: Record<string, string> = {
   food: "🍔", transport: "🚗", shopping: "🛍️",
-  bills: "📄", entertainment: "🎬", health: "💊", other: "📦",
+  bills: "📄", entertainment: "🎬", health: "💊",
+  education: "📚", other: "📦",
   salary: "💵", freelance: "💻", gift: "🎁",
   refund: "🔄", investment: "📈", other_income: "💰",
 };
@@ -129,6 +131,8 @@ export default function DashboardPage() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [budgetMenuOpen, setBudgetMenuOpen] = useState<string | null>(null);
+  const [confirmDeleteBudget, setConfirmDeleteBudget] = useState<string | null>(null);
 
   const loadData = () => {
     if (!getToken()) { router.push("/"); return; }
@@ -154,6 +158,20 @@ export default function DashboardPage() {
     await api.setBudget(category, amount);
     setBudgets(prev => ({ ...prev, [category]: amount }));
     setEditingBudgetCat(null);
+    setBudgetMenuOpen(null);
+  };
+
+  const handleDeleteBudget = async (category: string) => {
+    try {
+      await api.deleteBudget(category);
+      setBudgets(prev => {
+        const next = { ...prev };
+        delete next[category];
+        return next;
+      });
+    } catch { /* handled by API layer */ }
+    setConfirmDeleteBudget(null);
+    setBudgetMenuOpen(null);
   };
 
   const handleDelete = async (id: number) => {
@@ -362,15 +380,41 @@ export default function DashboardPage() {
                               <button onClick={() => saveBudget(name)} className="text-emerald-400 hover:text-emerald-300"><Check size={14} /></button>
                               <button onClick={() => setEditingBudgetCat(null)} className="text-gray-500 hover:text-gray-400"><X size={14} /></button>
                             </div>
+                          ) : confirmDeleteBudget === name ? (
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-gray-400">Remove budget?</span>
+                              <button onClick={() => handleDeleteBudget(name)} className="text-rose-400 hover:text-rose-300 font-medium">Yes</button>
+                              <button onClick={() => setConfirmDeleteBudget(null)} className="text-gray-500 hover:text-gray-400">No</button>
+                            </div>
                           ) : (
                             <>
                               <span className="text-gray-500 text-xs">
                                 {value.toLocaleString()}{catBudget ? ` / ${catBudget.toLocaleString()}` : ""} EGP
                               </span>
-                              <button onClick={() => { setEditingBudgetCat(name); setBudgetInput(catBudget?.toString() || ""); }}
-                                className="text-gray-600 hover:text-gray-400 transition" title="Set budget">
-                                <Settings size={12} />
-                              </button>
+                              <div className="relative">
+                                <button onClick={() => setBudgetMenuOpen(budgetMenuOpen === name ? null : name)}
+                                  className="text-gray-600 hover:text-gray-400 transition" title="Budget options">
+                                  <Settings size={12} />
+                                </button>
+                                {budgetMenuOpen === name && (
+                                  <div className="absolute right-0 top-full mt-1 bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl py-1 w-36 z-20">
+                                    <button
+                                      onClick={() => { setEditingBudgetCat(name); setBudgetInput(catBudget?.toString() || ""); setBudgetMenuOpen(null); }}
+                                      className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-300 hover:bg-white/5 transition"
+                                    >
+                                      <Settings size={12} /> {catBudget ? "Edit amount" : "Set budget"}
+                                    </button>
+                                    {catBudget && (
+                                      <button
+                                        onClick={() => { setConfirmDeleteBudget(name); setBudgetMenuOpen(null); }}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-rose-400 hover:bg-white/5 transition"
+                                      >
+                                        <Trash2 size={12} /> Delete budget
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </>
                           )}
                         </div>

@@ -4,24 +4,38 @@ import traceback
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import os
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import secrets
+import re
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense
+from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense, delete_budget
 from sqlalchemy import extract
+
+# ── Rate limiting ────────────────────────────────────────────────────────
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
 app = FastAPI()
 security = HTTPBearer()
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-JWT_SECRET = os.getenv("JWT_SECRET", "change-this-to-a-random-secret")
+# ── Secrets — fail fast if missing ───────────────────────────────────────
+BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+JWT_SECRET = os.environ["JWT_SECRET"]
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")  # for bot→API calls
 
+# ── Rate limiter setup ───────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── CORS — tightened methods, headers, and origin regex ──────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -29,10 +43,10 @@ app.add_middleware(
         "http://localhost:3001",
         "https://moneybot-beta.vercel.app"
     ],
-    allow_origin_regex=r"https://moneybot-.*\.vercel\.app",
-    allow_credentials=True  ,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=r"https://moneybot-[a-z0-9]+-abubakrhegazi\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ── Admin router ─────────────────────────────────────────────────────────
@@ -48,11 +62,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Remove server identity headers
+        response.headers.pop("X-Powered-By", None)
+        response.headers.pop("server", None)
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# ── Global exception handler (ensures CORS headers on 500s) ──────────
+# ── Global exception handler (generic message — never leak internals) ────
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -60,7 +80,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     print(f"[ERROR] {request.method} {request.url}\n{tb}")
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 # ── Startup ──────────────────────────────────────────────────────────────
@@ -68,6 +88,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 def on_startup():
     init_db()
+
 # ── Auth ──────────────────────────────────────────────────────────────
 
 def verify_telegram_auth(data: dict) -> bool:
@@ -83,11 +104,11 @@ def verify_telegram_auth(data: dict) -> bool:
     computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(computed_hash, check_hash)
 
-def create_jwt(user_id: str, username: str) -> str:
+def create_jwt_token(user_id: str, username: str) -> str:
     payload = {
         "sub": user_id,
         "username": username,
-        "exp": datetime.utcnow() + timedelta(days=7)
+        "exp": datetime.now(timezone.utc) + timedelta(days=7)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -101,21 +122,23 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 # ── Routes ────────────────────────────────────────────────────────────
 
 @app.post("/auth/telegram")
-async def telegram_auth(data: dict):
+@limiter.limit("5/minute")
+async def telegram_auth(request: Request, data: dict):
     """Called by frontend after Telegram login widget"""
     if not verify_telegram_auth(dict(data)):
         raise HTTPException(status_code=401, detail="Invalid Telegram auth")
 
-    token = create_jwt(str(data["id"]), data.get("username", ""))
+    token = create_jwt_token(str(data["id"]), data.get("username", ""))
     return {"token": token, "user": data}
 
 @app.get("/expenses/summary")
-async def monthly_summary(user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def monthly_summary(request: Request, user=Depends(get_current_user)):
     expense_total, breakdown, count, income_total = get_monthly_summary(user["sub"])
     # Get last month total for trend comparison
     session = Session()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         last_month = (now.month - 2) % 12 + 1
         last_year = now.year if now.month > 1 else now.year - 1
         last_expenses = session.query(Expense).filter(
@@ -131,13 +154,14 @@ async def monthly_summary(user=Depends(get_current_user)):
         "income_total": income_total,
         "count": count,
         "breakdown": breakdown,
-        "month": datetime.utcnow().strftime("%B %Y"),
+        "month": datetime.now(timezone.utc).strftime("%B %Y"),
         "last_month_total": last_month_total,
         "days_in_month": now.day
     }
 
 @app.get("/expenses/history")
-async def expense_history(user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def expense_history(request: Request, user=Depends(get_current_user)):
     session = Session()
     try:
         expenses = session.query(Expense).filter_by(
@@ -162,22 +186,23 @@ async def expense_history(user=Depends(get_current_user)):
         session.close()
 
 @app.delete("/expenses/{expense_id}")
-async def delete_expense_api(expense_id: int, user=Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def delete_expense_api(request: Request, expense_id: int, user=Depends(get_current_user)):
     success = delete_expense(user["sub"], expense_id)
     if not success:
         raise HTTPException(status_code=404, detail="Expense not found")
     return {"status": "deleted", "id": expense_id}
 
 @app.get("/expenses/monthly-trend")
-async def monthly_trend(user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def monthly_trend(request: Request, user=Depends(get_current_user)):
     session = Session()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = []
         for i in range(5, -1, -1):
-            # correct calculation
             month = ((now.month - 1 - i) % 12) + 1
-            year = now.year + ((now.month - 1 - i) // 12)  # this was the bug
+            year = now.year + ((now.month - 1 - i) // 12)
             expenses = session.query(Expense).filter(
                 Expense.telegram_user_id == user["sub"],
                 extract('month', Expense.created_at) == month,
@@ -200,49 +225,71 @@ class BudgetBody(BaseModel):
     currency: str = "EGP"
 
 @app.get("/budget")
-async def get_user_budget(user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_user_budget(request: Request, user=Depends(get_current_user)):
     result = get_budget(user["sub"])
     return result  # returns {category: amount} dict
 
 @app.post("/budget")
-async def set_user_budget(body: BudgetBody, user=Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def set_user_budget(request: Request, body: BudgetBody, user=Depends(get_current_user)):
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Budget must be positive")
     set_budget(user["sub"], body.category, body.amount, body.currency)
     return {"category": body.category, "amount": body.amount, "currency": body.currency}
 
-@app.get("/auth/test-token")
-async def test_token():
-    """Remove this in production!"""
-    token = create_jwt("687080661", "testuser")
-    return {"token": token}
+@app.delete("/budget/{category}")
+@limiter.limit("30/minute")
+async def delete_user_budget(request: Request, category: str, user=Depends(get_current_user)):
+    success = delete_budget(user["sub"], category)
+    if not success:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return {"status": "deleted", "category": category}
+
+# ── test-token endpoint REMOVED (was a security risk) ────────────────
 
 class TelegramLinkAuthBody(BaseModel):
     token: str
 
 @app.post("/auth/telegram-link")
-async def telegram_link_auth(body: TelegramLinkAuthBody):
+@limiter.limit("5/minute")
+async def telegram_link_auth(request: Request, body: TelegramLinkAuthBody):
     try:
         telegram_user_id = consume_login_token(body.token)
     except Exception as e:
         print(f"[ERROR] consume_login_token failed: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+        # Never leak internal error details to clients
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     if not telegram_user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired link")
 
-    token = create_jwt(str(telegram_user_id), "")
+    token = create_jwt_token(str(telegram_user_id), "")
     return {"token": token}
+
+# ── WhatsApp auth — internal-only (bot→API), gated by API key ────────
+
+_PHONE_REGEX = re.compile(r"^\+?[1-9]\d{6,14}$")
+
 @app.post("/auth/whatsapp-token")
-async def create_whatsapp_login(phone: str):
+@limiter.limit("5/minute")
+async def create_whatsapp_login(request: Request, phone: str):
+    # Gate: only the bot should call this endpoint
+    api_key = request.headers.get("X-Internal-Api-Key", "")
+    if INTERNAL_API_KEY and api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    # Validate phone format
+    if not _PHONE_REGEX.match(phone):
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
     raw = create_login_token(phone, minutes=10)
     return {"token": raw}
 
 @app.get("/auth/whatsapp")
-async def whatsapp_login(token: str):
+@limiter.limit("5/minute")
+async def whatsapp_login(request: Request, token: str):
     user_id = consume_login_token(token)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired link")
-    jwt_token = create_jwt(user_id, user_id)
+    jwt_token = create_jwt_token(user_id, user_id)
     return {"token": jwt_token, "user_id": user_id}

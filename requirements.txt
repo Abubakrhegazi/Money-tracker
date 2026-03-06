@@ -11,3 +11,4 @@ alembic
 Flask
 bcrypt
 pyotp
+slowapi

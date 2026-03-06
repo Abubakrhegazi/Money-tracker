@@ -82,6 +82,7 @@ export const api = {
   setBudget: (category: string, amount: number, currency: string = "EGP") =>
     fetchWithAuthPost("/budget", { category, amount, currency }),
   deleteExpense: (id: number) => fetchWithAuthDelete(`/expenses/${id}`),
+  deleteBudget: (category: string) => fetchWithAuthDelete(`/budget/${category}`),
   telegramAuth: (data: object) =>
     fetch(`${API_URL}/auth/telegram`, {
       method: "POST",

@@ -4,7 +4,7 @@ Mounted on the main FastAPI app at /admin.
 """
 import os
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from time import time
 
@@ -26,7 +26,7 @@ from database import (
 
 router = APIRouter()
 
-ADMIN_JWT_SECRET = os.getenv("ADMIN_JWT_SECRET", "admin-change-me-secret")
+ADMIN_JWT_SECRET = os.environ["ADMIN_JWT_SECRET"]  # fail fast if missing
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 SESSION_EXPIRY = int(os.getenv("ADMIN_SESSION_EXPIRY", "1800"))
@@ -58,11 +58,11 @@ def _get_client_ip(request: Request) -> str:
 def _create_admin_jwt(username: str) -> tuple[str, str]:
     """Create access token (short) + refresh token (7 days)."""
     access = jwt.encode(
-        {"sub": username, "type": "admin_access", "exp": datetime.utcnow() + timedelta(minutes=30)},
+        {"sub": username, "type": "admin_access", "exp": datetime.now(timezone.utc) + timedelta(minutes=30)},
         ADMIN_JWT_SECRET, algorithm="HS256"
     )
     refresh = jwt.encode(
-        {"sub": username, "type": "admin_refresh", "exp": datetime.utcnow() + timedelta(days=7)},
+        {"sub": username, "type": "admin_refresh", "exp": datetime.now(timezone.utc) + timedelta(days=7)},
         ADMIN_JWT_SECRET, algorithm="HS256"
     )
     return access, refresh
@@ -153,9 +153,29 @@ async def admin_refresh(request: Request, response: Response):
 
 
 @router.post("/logout")
-async def admin_logout(response: Response):
+async def admin_logout(request: Request, response: Response):
+    # Revoke server-side session (not just client cookies)
+    token = None
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+    if not token:
+        token = request.cookies.get("admin_token")
+    if token:
+        try:
+            payload = jwt.decode(token, ADMIN_JWT_SECRET, algorithms=["HS256"])
+            username = payload.get("sub", "")
+            # Revoke all sessions for this admin
+            sessions = get_active_admin_sessions()
+            for s in sessions:
+                if s.get("username") == username:
+                    revoke_admin_session(s["id"])
+        except JWTError:
+            pass  # token already invalid, just clear cookies
     response.delete_cookie("admin_token")
     response.delete_cookie("admin_refresh")
+    ip = _get_client_ip(request)
+    log_admin_action("admin", "logout", ip=ip)
     return {"status": "ok"}
 
 
@@ -285,8 +305,10 @@ async def change_password(body: ChangePasswordBody, request: Request, admin: str
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
     ip = _get_client_ip(request)
-    log_admin_action(admin, "change_password", ip=ip, details="Password updated (must update ADMIN_PASSWORD_HASH env var)")
-    return {"status": "ok", "new_hash": new_hash, "note": "Update ADMIN_PASSWORD_HASH env var with this value"}
+    log_admin_action(admin, "change_password", ip=ip, details="Password updated")
+    # Never return the hash in the response — log it server-side only
+    print(f"[ADMIN] New password hash (update ADMIN_PASSWORD_HASH env var): {new_hash}")
+    return {"status": "ok", "note": "Password updated. Check server logs for the new hash to update your env var."}
 
 
 @router.get("/settings/sessions")
@@ -320,7 +342,7 @@ async def get_maintenance(admin: str = Depends(get_current_admin)):
 
 @router.get("/settings/env")
 async def env_config(admin: str = Depends(get_current_admin)):
-    """Show env var names + masked values (security)."""
+    """Show which env vars are set — never expose any values."""
     keys = [
         "DATABASE_URL", "GROQ_API_KEY", "TELEGRAM_BOT_TOKEN",
         "META_WHATSAPP_TOKEN", "META_PHONE_NUMBER_ID", "META_VERIFY_TOKEN",
@@ -330,5 +352,5 @@ async def env_config(admin: str = Depends(get_current_admin)):
     return [{
         "key": k,
         "set": bool(os.getenv(k)),
-        "value": (os.getenv(k, "")[:4] + "***") if os.getenv(k) else "(not set)",
+        "value": "✅ set" if os.getenv(k) else "❌ not set",
     } for k in keys]

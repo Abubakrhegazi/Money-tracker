@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import tempfile
 import traceback
 import requests
 from flask import Flask, request, jsonify
@@ -49,15 +50,64 @@ def is_rate_limited(user_id: str) -> bool:
 
 CATEGORY_EMOJI = {
     "food": "🍔", "transport": "🚗", "shopping": "🛍️",
-    "bills": "📄", "entertainment": "🎬", "health": "💊", "other": "📦",
+    "bills": "📄", "entertainment": "🎬", "health": "💊",
+    "education": "📚", "other": "📦",
     "salary": "💵", "freelance": "💻", "gift": "🎁", "refund": "🔄",
     "investment": "📈", "other_income": "💰"
 }
 
-CATEGORIES = ["food", "transport", "shopping", "bills", "entertainment", "health", "other"]
+CATEGORIES = ["food", "transport", "shopping", "bills", "entertainment", "health", "education", "other"]
 INCOME_CATEGORIES = ["salary", "freelance", "gift", "refund", "investment", "other_income"]
 
+# ── Category synonym mapping ─────────────────────────────────────────────────
+# Maps common terms to fixed categories — used to normalize AI output
+CATEGORY_SYNONYMS: dict[str, str] = {
+    # Food
+    "lunch": "food", "dinner": "food", "breakfast": "food", "coffee": "food",
+    "restaurant": "food", "snack": "food", "groceries": "food", "cafe": "food",
+    "eating": "food", "meal": "food", "takeout": "food", "delivery": "food",
+    # Transport
+    "uber": "transport", "taxi": "transport", "metro": "transport",
+    "bus": "transport", "fuel": "transport", "gas": "transport",
+    "parking": "transport", "careem": "transport", "train": "transport",
+    "transportation": "transport", "ride": "transport",
+    # Bills
+    "electricity": "bills", "internet": "bills", "rent": "bills",
+    "water": "bills", "phone": "bills", "mobile": "bills",
+    "subscription": "bills", "utility": "bills", "utilities": "bills",
+    # Shopping
+    "clothes": "shopping", "clothing": "shopping", "shoes": "shopping",
+    "amazon": "shopping", "online": "shopping",
+    # Entertainment
+    "movie": "entertainment", "movies": "entertainment", "cinema": "entertainment",
+    "gaming": "entertainment", "game": "entertainment", "netflix": "entertainment",
+    "spotify": "entertainment", "concert": "entertainment",
+    # Health
+    "doctor": "health", "pharmacy": "health", "medicine": "health",
+    "hospital": "health", "gym": "health", "dentist": "health",
+    "medical": "health", "clinic": "health",
+    # Education
+    "tuition": "education", "course": "education", "school": "education",
+    "university": "education", "books": "education", "book": "education",
+    "training": "education", "class": "education", "lesson": "education",
+    "udemy": "education", "coursera": "education",
+}
+ALL_VALID_CATEGORIES = set(CATEGORIES + INCOME_CATEGORIES)
+
+def normalize_category(category: str, entry_type: str = "expense") -> str:
+    """Map any category string to a fixed category. Falls back to 'other'."""
+    cat = category.strip().lower()
+    if cat in ALL_VALID_CATEGORIES:
+        return cat
+    if cat in CATEGORY_SYNONYMS:
+        return CATEGORY_SYNONYMS[cat]
+    return "other_income" if entry_type == "income" else "other"
+
 import re
+
+# ── Security constants ────────────────────────────────────────────────────────
+MAX_MESSAGE_LENGTH = 500
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
 
 _GREETING_PATTERNS = re.compile(
     r'^\s*(hi|hello|hey|yo|sup|hola|morning|good\s*(morning|evening|afternoon|night)|'
@@ -198,6 +248,7 @@ CRITICAL RULES:
 2. Greetings, questions, small talk, or vague statements are NOT transactions. Return {"error": "not_a_transaction"}
 3. The merchant field should ONLY be a real business/store/person name mentioned in the text. If none is mentioned, set merchant to null. Do NOT use random words as merchant.
 4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
+5. The category MUST be one of the exact values listed below. Never use any other category.
 
 INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
 EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
@@ -207,7 +258,7 @@ Return ONLY this JSON:
   "type": "income" or "expense",
   "amount": <number — MUST be a real number, never null>,
   "currency": <"EGP" if not mentioned>,
-  "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
   "merchant": <real business/person name or null>,
   "date": <"today" if not mentioned>
@@ -223,6 +274,11 @@ If NOT a clear financial transaction with a specific amount, return {"error": "n
         amount = result.get("amount")
         if amount is None or amount == 0 or not isinstance(amount, (int, float)):
             return {"error": "no_amount"}
+        # Normalize category to fixed list
+        result["category"] = normalize_category(
+            result.get("category", "other"),
+            result.get("type", "expense")
+        )
     return result
 
 
@@ -247,15 +303,18 @@ Keep unchanged fields. Return ONLY valid JSON: type, amount, currency, category,
 
 def transcribe_audio(audio_url: str) -> str:
     response = requests.get(audio_url, headers={"Authorization": f"Bearer {META_TOKEN}"})
-    file_path = "whatsapp_audio.ogg"
-    with open(file_path, "wb") as f:
-        f.write(response.content)
-    with open(file_path, "rb") as f:
-        transcription = groq_client.audio.transcriptions.create(
-            model="whisper-large-v3", file=f
-        )
-    os.remove(file_path)
-    return transcription.text
+    # Use tempfile to avoid race conditions with concurrent requests
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        tmp.write(response.content)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as f:
+            transcription = groq_client.audio.transcriptions.create(
+                model="whisper-large-v3", file=f
+            )
+        return transcription.text
+    finally:
+        os.remove(tmp_path)
 
 
 def create_login_token(phone: str) -> str:
@@ -661,6 +720,8 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
             return jsonify({"status": "ok"}), 200
 
         body = message["text"]["body"].strip()
+        # Security: strip HTML tags and enforce max length
+        body = _HTML_TAG_RE.sub('', body)[:MAX_MESSAGE_LENGTH].strip()
         cmd = body.lower().split()[0] if body else ""
         args = body[len(cmd):].strip()
 
