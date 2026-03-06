@@ -273,7 +273,7 @@ export default function DashboardPage() {
 
         <div className="border-t border-white/5 pt-4">
           <NavItem icon={<Settings size={18} />} label="Settings"
-            active={activeSection === "settings"} onClick={() => setActiveSection("settings")} />
+            active={activeSection === "settings"} onClick={() => router.push("/dashboard/settings")} />
         </div>
       </aside>
 

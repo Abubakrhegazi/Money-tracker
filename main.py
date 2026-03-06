@@ -1,7 +1,12 @@
 import os
 import json
+import re
 from groq import Groq
-from database import init_db, save_expense, get_monthly_summary, get_recent_expenses, delete_expense, create_login_token, Session, Expense, set_budget, get_budget
+from database import (
+    init_db, save_expense, get_monthly_summary, get_recent_expenses,
+    delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
+    get_notification_settings, update_notification_settings,
+)
 from datetime import datetime
 
 FRONTEND_URL = "https://moneybot-beta.vercel.app"
@@ -74,6 +79,7 @@ CRITICAL RULES:
 2. Greetings, questions, small talk, or vague statements are NOT transactions. Return {"error": "not_a_transaction"}
 3. The merchant field should ONLY be a real business/store/person name. If none mentioned, set merchant to null. Do NOT use random words as merchant.
 4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
+5. The category MUST be one of the exact values listed below. Never use any other category.
 
 INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
 EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
@@ -83,7 +89,7 @@ Return ONLY this JSON:
   "type": "income" or "expense",
   "amount": <number — MUST be a real number, never null>,
   "currency": <"EGP" if not mentioned>,
-  "category": <for expenses: food|transport|shopping|bills|entertainment|health|other>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
   "merchant": <real business/person name or null>,
   "date": <"today" if not mentioned>
@@ -324,7 +330,8 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def category_emoji(category: str) -> str:
     emojis = {
         "food": "🍔", "transport": "🚗", "shopping": "🛍️",
-        "bills": "📄", "entertainment": "🎬", "health": "💊", "other": "📦",
+        "bills": "📄", "entertainment": "🎬", "health": "💊",
+        "education": "📚", "other": "📦",
         "salary": "💵", "freelance": "💻", "gift": "🎁",
         "refund": "🔄", "investment": "📈", "other_income": "💰"
     }
@@ -503,16 +510,115 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Register in main():
+
+# ── /notifications command ─────────────────────────────────────────────
+
+DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    args = context.args
+
+    settings = get_notification_settings(user_id)
+
+    if not args:
+        # Show current settings
+        daily_status = "✅ ON" if settings["daily_enabled"] else "❌ OFF"
+        weekly_status = "✅ ON" if settings["weekly_enabled"] else "❌ OFF"
+        day_name = DAY_NAMES[settings["weekly_day"]] if 0 <= settings["weekly_day"] < 7 else "Sunday"
+        reply = (
+            "🔔 *Notification Settings*\n\n"
+            f"📅 Daily summary: {daily_status}\n"
+            f"    Time: {settings['daily_time']} ({settings['timezone']})\n\n"
+            f"📊 Weekly summary: {weekly_status}\n"
+            f"    Day: {day_name}\n\n"
+            "*Commands:*\n"
+            "`/notifications daily` — toggle daily\n"
+            "`/notifications weekly` — toggle weekly\n"
+            "`/notifications time 9pm` — set time\n"
+            "`/notifications off` — disable all"
+        )
+        await update.message.reply_text(reply, parse_mode="Markdown")
+        return
+
+    subcmd = args[0].lower()
+
+    if subcmd == "off":
+        update_notification_settings(user_id, daily_enabled=False, weekly_enabled=False)
+        await update.message.reply_text("🔕 All notifications disabled.\n\nUse `/notifications daily` or `/notifications weekly` to re-enable.", parse_mode="Markdown")
+
+    elif subcmd == "daily":
+        new_val = not settings["daily_enabled"]
+        update_notification_settings(user_id, daily_enabled=new_val)
+        status = "✅ ON" if new_val else "❌ OFF"
+        await update.message.reply_text(f"📅 Daily summary: {status}")
+
+    elif subcmd == "weekly":
+        new_val = not settings["weekly_enabled"]
+        update_notification_settings(user_id, weekly_enabled=new_val)
+        status = "✅ ON" if new_val else "❌ OFF"
+        await update.message.reply_text(f"📊 Weekly summary: {status}")
+
+    elif subcmd == "time":
+        if len(args) < 2:
+            await update.message.reply_text("Usage: `/notifications time 9pm`", parse_mode="Markdown")
+            return
+        raw = args[1].lower().strip()
+        # Parse: "9pm", "10pm", "22:00", "21", etc.
+        hour = None
+        m = re.match(r'^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$', raw)
+        if m:
+            h = int(m.group(1))
+            period = m.group(3)
+            if period == "pm" and h < 12:
+                h += 12
+            elif period == "am" and h == 12:
+                h = 0
+            if 0 <= h <= 23:
+                hour = h
+        if hour is None:
+            await update.message.reply_text("❌ Invalid time. Try: `9pm`, `22:00`, or `21`", parse_mode="Markdown")
+            return
+        time_str = f"{hour:02d}:00"
+        update_notification_settings(user_id, daily_time=time_str)
+        period_label = "AM" if hour < 12 else "PM"
+        h12 = hour % 12 or 12
+        await update.message.reply_text(f"⏰ Daily summary time set to *{h12}:00 {period_label}*", parse_mode="Markdown")
+
+    else:
+        await update.message.reply_text(
+            "Unknown option. Try:\n"
+            "`/notifications daily`\n"
+            "`/notifications weekly`\n"
+            "`/notifications time 9pm`\n"
+            "`/notifications off`",
+            parse_mode="Markdown"
+        )
+
+
 def main():
-    init_db()  # creates the DB file and tables if they don't exist
+    init_db()
     app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
+    # ── Start APScheduler ─────────────────────────────────────────
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from notifications import run_daily_check, run_weekly_check
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(run_daily_check, "interval", hours=1, id="daily_check",
+                      next_run_time=datetime.now())  # run once on startup
+    scheduler.add_job(run_weekly_check, "interval", hours=1, id="weekly_check")
+    scheduler.start()
+    print("[SCHEDULER] APScheduler started (daily + weekly checks every hour)")
+
+    # ── Handlers ──────────────────────────────────────────────────
     app.add_handler(CommandHandler("link", link_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(CommandHandler("summary", summary_command)) 
+    app.add_handler(CommandHandler("summary", summary_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("dashboard", dashboard_command))
     app.add_handler(CommandHandler("budget", budget_command))
+    app.add_handler(CommandHandler("notifications", notifications_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(
@@ -524,5 +630,5 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-    
+
     main()

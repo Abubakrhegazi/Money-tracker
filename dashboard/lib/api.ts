@@ -83,6 +83,9 @@ export const api = {
     fetchWithAuthPost("/budget", { category, amount, currency }),
   deleteExpense: (id: number) => fetchWithAuthDelete(`/expenses/${id}`),
   deleteBudget: (category: string) => fetchWithAuthDelete(`/budget/${category}`),
+  getNotificationSettings: () => fetchWithAuth("/notifications/settings"),
+  updateNotificationSettings: (settings: Record<string, any>) =>
+    fetchWithAuthPost("/notifications/settings", settings),
   telegramAuth: (data: object) =>
     fetch(`${API_URL}/auth/telegram`, {
       method: "POST",

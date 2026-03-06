@@ -103,6 +103,19 @@ class AdminSession(Base):
     last_active = Column(DateTime, default=datetime.utcnow)
     revoked = Column(Boolean, default=False)
 
+class NotificationSettings(Base):
+    __tablename__ = "notification_settings"
+    id = Column(Integer, primary_key=True)
+    telegram_user_id = Column(String, unique=True, nullable=False, index=True)
+    daily_enabled = Column(Boolean, default=True)
+    daily_time = Column(String, default="22:00")       # HH:MM
+    weekly_enabled = Column(Boolean, default=True)
+    weekly_day = Column(Integer, default=0)             # 0=Sunday
+    timezone = Column(String, default="Africa/Cairo")
+    last_sent_daily = Column(DateTime, nullable=True)
+    last_sent_weekly = Column(DateTime, nullable=True)
+    failures = Column(Integer, default=0)
+
 def init_db():
     try:
         from sqlalchemy import inspect, text
@@ -840,5 +853,152 @@ def get_active_admin_sessions(username: str = None):
             "last_active": s.last_active.isoformat() if s.last_active else None,
             "expires_at": s.expires_at.isoformat(),
         } for s in sessions]
+    finally:
+        session.close()
+
+
+# ── Notification Settings CRUD ────────────────────────────────────────────
+
+def get_notification_settings(user_id: str) -> dict:
+    """Return notification prefs for a user. Returns defaults if none saved."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        ns = session.query(NotificationSettings).filter_by(telegram_user_id=user_id).first()
+        if not ns:
+            return {
+                "daily_enabled": True, "daily_time": "22:00",
+                "weekly_enabled": True, "weekly_day": 0,
+                "timezone": "Africa/Cairo",
+            }
+        return {
+            "daily_enabled": ns.daily_enabled,
+            "daily_time": ns.daily_time,
+            "weekly_enabled": ns.weekly_enabled,
+            "weekly_day": ns.weekly_day,
+            "timezone": ns.timezone,
+        }
+    finally:
+        session.close()
+
+
+def update_notification_settings(user_id: str, **kwargs) -> dict:
+    """Upsert notification settings. Only updates provided fields."""
+    user_id = get_primary_id(user_id)
+    ALLOWED = {"daily_enabled", "daily_time", "weekly_enabled", "weekly_day", "timezone"}
+    session = Session()
+    try:
+        ns = session.query(NotificationSettings).filter_by(telegram_user_id=user_id).first()
+        if not ns:
+            ns = NotificationSettings(telegram_user_id=user_id)
+            session.add(ns)
+        for k, v in kwargs.items():
+            if k in ALLOWED:
+                setattr(ns, k, v)
+        session.commit()
+        return {
+            "daily_enabled": ns.daily_enabled,
+            "daily_time": ns.daily_time,
+            "weekly_enabled": ns.weekly_enabled,
+            "weekly_day": ns.weekly_day,
+            "timezone": ns.timezone,
+        }
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_all_notification_users() -> list:
+    """Return all users who have at least one notification enabled, with their settings."""
+    session = Session()
+    try:
+        rows = session.query(NotificationSettings).filter(
+            (NotificationSettings.daily_enabled == True) |
+            (NotificationSettings.weekly_enabled == True)
+        ).filter(NotificationSettings.failures < 3).all()
+        return [{
+            "user_id": r.telegram_user_id,
+            "daily_enabled": r.daily_enabled,
+            "daily_time": r.daily_time,
+            "weekly_enabled": r.weekly_enabled,
+            "weekly_day": r.weekly_day,
+            "timezone": r.timezone,
+            "last_sent_daily": r.last_sent_daily,
+            "last_sent_weekly": r.last_sent_weekly,
+        } for r in rows]
+    finally:
+        session.close()
+
+
+def get_distinct_user_ids() -> list[str]:
+    """Return all distinct user IDs that have recorded at least one expense."""
+    session = Session()
+    try:
+        rows = session.query(distinct(Expense.telegram_user_id)).all()
+        return [r[0] for r in rows]
+    finally:
+        session.close()
+
+
+def mark_notification_sent(user_id: str, kind: str):
+    """Update last_sent_daily or last_sent_weekly timestamp."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        ns = session.query(NotificationSettings).filter_by(telegram_user_id=user_id).first()
+        if not ns:
+            ns = NotificationSettings(telegram_user_id=user_id)
+            session.add(ns)
+        if kind == "daily":
+            ns.last_sent_daily = datetime.utcnow()
+        elif kind == "weekly":
+            ns.last_sent_weekly = datetime.utcnow()
+        ns.failures = 0
+        session.commit()
+    finally:
+        session.close()
+
+
+def increment_notification_failure(user_id: str):
+    """Track delivery failures. After 3, user is auto-skipped."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        ns = session.query(NotificationSettings).filter_by(telegram_user_id=user_id).first()
+        if ns:
+            ns.failures = (ns.failures or 0) + 1
+            session.commit()
+    finally:
+        session.close()
+
+
+def get_daily_transactions(user_id: str, date_obj):
+    """Get all transactions for a user on a specific date."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        day_start = date_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        return session.query(Expense).filter(
+            Expense.telegram_user_id == user_id,
+            Expense.created_at >= day_start,
+            Expense.created_at < day_end
+        ).all()
+    finally:
+        session.close()
+
+
+def get_weekly_transactions(user_id: str, start_date, end_date):
+    """Get all transactions for a user between start and end dates."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        return session.query(Expense).filter(
+            Expense.telegram_user_id == user_id,
+            Expense.created_at >= start_date,
+            Expense.created_at < end_date
+        ).all()
     finally:
         session.close()

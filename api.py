@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 import secrets
 import re
 from dotenv import load_dotenv
-from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense, delete_budget
+from database import Session, Expense, get_monthly_summary, consume_login_token, create_login_token, init_db, set_budget, get_budget, delete_expense, delete_budget, get_notification_settings, update_notification_settings
 from sqlalchemy import extract
 
 # ── Rate limiting ────────────────────────────────────────────────────────
@@ -245,6 +245,28 @@ async def delete_user_budget(request: Request, category: str, user=Depends(get_c
     if not success:
         raise HTTPException(status_code=404, detail="Budget not found")
     return {"status": "deleted", "category": category}
+
+# ── Notification Settings ─────────────────────────────────────────────
+
+class NotificationSettingsBody(BaseModel):
+    daily_enabled: bool | None = None
+    daily_time: str | None = None
+    weekly_enabled: bool | None = None
+    weekly_day: int | None = None
+    timezone: str | None = None
+
+@app.get("/notifications/settings")
+@limiter.limit("30/minute")
+async def get_notif_settings(request: Request, user=Depends(get_current_user)):
+    return get_notification_settings(user["sub"])
+
+@app.post("/notifications/settings")
+@limiter.limit("10/minute")
+async def update_notif_settings(request: Request, body: NotificationSettingsBody, user=Depends(get_current_user)):
+    kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not kwargs:
+        raise HTTPException(status_code=400, detail="No settings provided")
+    return update_notification_settings(user["sub"], **kwargs)
 
 # ── test-token endpoint REMOVED (was a security risk) ────────────────
 

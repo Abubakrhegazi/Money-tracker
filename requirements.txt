@@ -12,3 +12,5 @@ Flask
 bcrypt
 pyotp
 slowapi
+apscheduler
+pytz
