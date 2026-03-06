@@ -41,9 +41,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        "https://moneybot-beta.vercel.app"
+        "https://moneybot-beta.vercel.app",
     ],
-    allow_origin_regex=r"https://moneybot-[a-z0-9]+-abubakrhegazi\.vercel\.app",
+    allow_origin_regex=r"https://moneybot[a-z0-9\-]*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
