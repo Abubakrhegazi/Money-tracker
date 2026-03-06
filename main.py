@@ -98,7 +98,7 @@ Return ONLY this JSON:
   "type": "income" or "expense",
   "amount": <number — MUST be a real number, never null>,
   "currency": <"EGP" if not mentioned>,
-  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|other>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|investment|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
   "merchant": <real business/person name or null>,
   "date": <"today" if not mentioned>

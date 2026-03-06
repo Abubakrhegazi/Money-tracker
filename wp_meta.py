@@ -664,7 +664,7 @@ def webhook():
                     "role": "user",
                     "content": [
                         {"type": "text", "text": """Extract transaction from this receipt.
-Return ONLY JSON: {"type": "expense", "amount": <number>, "currency": "EGP", "category": <food|transport|shopping|bills|entertainment|health|other>, "merchant": <string or null>, "date": "today"}
+Return ONLY JSON: {"type": "expense", "amount": <number>, "currency": "EGP", "category": <food|transport|shopping|bills|entertainment|investment|health|other>, "merchant": <string or null>, "date": "today"}
 If not a receipt, return {"error": "not_a_receipt"}"""},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
                     ]
