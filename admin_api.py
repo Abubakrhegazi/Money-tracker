@@ -26,7 +26,11 @@ from database import (
 
 router = APIRouter()
 
-ADMIN_JWT_SECRET = os.environ["ADMIN_JWT_SECRET"]  # fail fast if missing
+ADMIN_JWT_SECRET = os.getenv("ADMIN_JWT_SECRET", "")
+if not ADMIN_JWT_SECRET:
+    import secrets as _s
+    ADMIN_JWT_SECRET = _s.token_hex(32)
+    print("[WARNING] ADMIN_JWT_SECRET not set — using random ephemeral secret.")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 SESSION_EXPIRY = int(os.getenv("ADMIN_SESSION_EXPIRY", "1800"))

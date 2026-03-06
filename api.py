@@ -25,10 +25,14 @@ load_dotenv()
 app = FastAPI()
 security = HTTPBearer()
 
-# ── Secrets — fail fast if missing ───────────────────────────────────────
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")  # only needed for /auth/telegram
-JWT_SECRET = os.environ["JWT_SECRET"]
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")  # for bot→API calls
+# ── Secrets ───────────────────────────────────────────────────────────────
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    import secrets as _s
+    JWT_SECRET = _s.token_hex(32)
+    print("[WARNING] JWT_SECRET not set — using random ephemeral secret. Set JWT_SECRET env var for production!")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 # ── Rate limiter setup ───────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
