@@ -11,7 +11,7 @@ import {
   LogOut, TrendingUp, TrendingDown, Receipt, Wallet, Target,
   Check, X, LayoutDashboard, Search, ChevronDown,
   ArrowUpRight, ArrowDownRight, Minus, Settings, Trash2,
-  Menu, XCircle, AlertTriangle, RefreshCw,
+  Menu, XCircle, AlertTriangle, RefreshCw, Pencil,
 } from "lucide-react";
 
 /* ── Color System ─────────────────────────────────────────── */
@@ -133,6 +133,9 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [budgetMenuOpen, setBudgetMenuOpen] = useState<string | null>(null);
   const [confirmDeleteBudget, setConfirmDeleteBudget] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{ amount: string; category: string; merchant: string; entry_type: string }>({ amount: "", category: "", merchant: "", entry_type: "expense" });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const loadData = () => {
     if (!getToken()) { router.push("/"); return; }
@@ -184,6 +187,31 @@ export default function DashboardPage() {
       setSummary(s);
     } catch { /* Error handled by API layer */ }
     setDeletingId(null);
+  };
+
+  const startEdit = (e: any) => {
+    setEditingId(e.id);
+    setEditForm({ amount: String(e.amount), category: e.category, merchant: e.merchant || "", entry_type: e.entry_type || "expense" });
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    const amount = parseFloat(editForm.amount.replace(/,/g, ""));
+    if (isNaN(amount) || amount <= 0) return;
+    setSavingEdit(true);
+    try {
+      const updated = await api.updateExpense(editingId, {
+        amount,
+        category: editForm.category,
+        merchant: editForm.merchant || undefined,
+        entry_type: editForm.entry_type,
+      });
+      setHistory(prev => prev.map(e => e.id === editingId ? { ...e, ...updated } : e));
+      const s = await api.getSummary();
+      setSummary(s);
+      setEditingId(null);
+    } catch { /* handled by API layer */ }
+    setSavingEdit(false);
   };
 
   const filteredHistory = useMemo(() => {
@@ -542,6 +570,36 @@ export default function DashboardPage() {
                       <tbody>
                         {filteredHistory.slice(0, 30).map((e) => {
                           const isIncome = e.entry_type === "income";
+                          const isEditing = editingId === e.id;
+                          const expenseCategories = ["food","transport","shopping","bills","entertainment","health","education","other"];
+                          const incomeCategories = ["salary","freelance","gift","refund","investment","other_income"];
+                          const categoryOptions = editForm.entry_type === "income" ? incomeCategories : expenseCategories;
+                          if (isEditing) return (
+                            <tr key={e.id} className="border-b border-violet-500/20 bg-violet-500/[0.04]">
+                              <td colSpan={5} className="py-3 px-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select value={editForm.entry_type} onChange={ev => setEditForm(f => ({ ...f, entry_type: ev.target.value, category: ev.target.value === "income" ? "salary" : "food" }))}
+                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50">
+                                    <option value="expense">📤 Expense</option>
+                                    <option value="income">📥 Income</option>
+                                  </select>
+                                  <input type="number" value={editForm.amount} onChange={ev => setEditForm(f => ({ ...f, amount: ev.target.value }))}
+                                    placeholder="Amount" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white w-24 focus:outline-none focus:border-violet-500/50" />
+                                  <select value={editForm.category} onChange={ev => setEditForm(f => ({ ...f, category: ev.target.value }))}
+                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50">
+                                    {categoryOptions.map(c => <option key={c} value={c}>{CATEGORY_EMOJI[c]} {c}</option>)}
+                                  </select>
+                                  <input type="text" value={editForm.merchant} onChange={ev => setEditForm(f => ({ ...f, merchant: ev.target.value }))}
+                                    placeholder="Merchant (optional)" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white w-32 focus:outline-none focus:border-violet-500/50" />
+                                  <button onClick={saveEdit} disabled={savingEdit}
+                                    className="flex items-center gap-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                                    {savingEdit ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={12} />} Save
+                                  </button>
+                                  <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-300 transition"><X size={14} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
                           return (
                             <tr key={e.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition group">
                               <td className="py-3 px-2">
@@ -566,18 +624,15 @@ export default function DashboardPage() {
                                 <span className="text-gray-500 text-xs ml-1">{e.currency}</span>
                               </td>
                               <td className="py-3 px-2">
-                                <button
-                                  onClick={() => handleDelete(e.id)}
-                                  disabled={deletingId === e.id}
-                                  className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-rose-400 transition disabled:opacity-50"
-                                  title="Delete"
-                                >
-                                  {deletingId === e.id ? (
-                                    <div className="w-4 h-4 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin" />
-                                  ) : (
-                                    <Trash2 size={14} />
-                                  )}
-                                </button>
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-2 transition">
+                                  <button onClick={() => startEdit(e)} className="text-gray-600 hover:text-violet-400 transition" title="Edit">
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button onClick={() => handleDelete(e.id)} disabled={deletingId === e.id}
+                                    className="text-gray-600 hover:text-rose-400 transition disabled:opacity-50" title="Delete">
+                                    {deletingId === e.id ? <div className="w-4 h-4 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin" /> : <Trash2 size={14} />}
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -590,6 +645,38 @@ export default function DashboardPage() {
                   <div className="sm:hidden space-y-2">
                     {filteredHistory.slice(0, 20).map((e) => {
                       const isIncome = e.entry_type === "income";
+                      const isEditing = editingId === e.id;
+                      const expenseCategories = ["food","transport","shopping","bills","entertainment","health","education","other"];
+                      const incomeCategories = ["salary","freelance","gift","refund","investment","other_income"];
+                      const categoryOptions = editForm.entry_type === "income" ? incomeCategories : expenseCategories;
+                      if (isEditing) return (
+                        <div key={e.id} className="p-3 rounded-xl bg-violet-500/[0.06] border border-violet-500/20 space-y-2">
+                          <div className="flex gap-2 flex-wrap">
+                            <select value={editForm.entry_type} onChange={ev => setEditForm(f => ({ ...f, entry_type: ev.target.value, category: ev.target.value === "income" ? "salary" : "food" }))}
+                              className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50 flex-1">
+                              <option value="expense">📤 Expense</option>
+                              <option value="income">📥 Income</option>
+                            </select>
+                            <input type="number" value={editForm.amount} onChange={ev => setEditForm(f => ({ ...f, amount: ev.target.value }))}
+                              placeholder="Amount" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white w-24 focus:outline-none focus:border-violet-500/50" />
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            <select value={editForm.category} onChange={ev => setEditForm(f => ({ ...f, category: ev.target.value }))}
+                              className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50 flex-1">
+                              {categoryOptions.map(c => <option key={c} value={c}>{CATEGORY_EMOJI[c]} {c}</option>)}
+                            </select>
+                            <input type="text" value={editForm.merchant} onChange={ev => setEditForm(f => ({ ...f, merchant: ev.target.value }))}
+                              placeholder="Merchant" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white flex-1 focus:outline-none focus:border-violet-500/50" />
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={saveEdit} disabled={savingEdit}
+                              className="flex items-center gap-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition flex-1 justify-center">
+                              {savingEdit ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={12} />} Save
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-white/10 text-xs transition">Cancel</button>
+                          </div>
+                        </div>
+                      );
                       return (
                         <div key={e.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.03]">
                           <span className="text-2xl">{CATEGORY_EMOJI[e.category] || "📦"}</span>
@@ -606,10 +693,13 @@ export default function DashboardPage() {
                             </p>
                             <p className="text-gray-600 text-[10px]">{e.currency}</p>
                           </div>
-                          <button onClick={() => handleDelete(e.id)} disabled={deletingId === e.id}
-                            className="text-gray-700 hover:text-rose-400 transition ml-1">
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex flex-col gap-1.5 ml-1">
+                            <button onClick={() => startEdit(e)} className="text-gray-700 hover:text-violet-400 transition"><Pencil size={13} /></button>
+                            <button onClick={() => handleDelete(e.id)} disabled={deletingId === e.id}
+                              className="text-gray-700 hover:text-rose-400 transition">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

@@ -27,7 +27,7 @@ export default function TermsPage() {
           <div className="legal-toc-grid">
             <a href="#service"><span className="legal-toc-num">01</span> The Service</a>
             <a href="#accounts"><span className="legal-toc-num">02</span> Your Account</a>
-            <a href="#plans"><span className="legal-toc-num">03</span> Free &amp; Paid Plans</a>
+            <a href="#plans"><span className="legal-toc-num">03</span> Free Service</a>
             <a href="#acceptable"><span className="legal-toc-num">04</span> Acceptable Use</a>
             <a href="#data"><span className="legal-toc-num">05</span> Your Data</a>
             <a href="#availability"><span className="legal-toc-num">06</span> Availability</a>
@@ -57,30 +57,16 @@ export default function TermsPage() {
         </section>
 
         <section id="plans">
-          <h2><span className="legal-section-num">03</span>Free &amp; Paid Plans</h2>
-          <div className="legal-plan-grid">
-            <div className="legal-plan-card">
-              <div className="legal-plan-name">Free Plan</div>
-              <ul>
-                <li>Transaction logging</li>
-                <li>Basic summaries</li>
-                <li>Category budgets</li>
-                <li>Dashboard access</li>
-                <li>Daily notifications</li>
-              </ul>
-            </div>
-            <div className="legal-plan-card pro">
-              <div className="legal-plan-name">Pro Plan ✦</div>
-              <ul>
-                <li>Everything in Free</li>
-                <li>Advanced analytics</li>
-                <li>CSV/PDF export</li>
-                <li>Priority support</li>
-                <li>Early access to features</li>
-              </ul>
-            </div>
-          </div>
-          <p>Paid plan pricing and billing details are displayed at the point of purchase. Subscriptions renew automatically unless cancelled. Refunds are handled on a case-by-case basis — contact us within 7 days of a charge if you believe there&apos;s been an error.</p>
+          <h2><span className="legal-section-num">03</span>Free Service</h2>
+          <p>Aura is completely free. There are no paid plans, subscriptions, or hidden charges. All features are available to every user at no cost:</p>
+          <ul>
+            <li>Unlimited transaction logging</li>
+            <li>Spending summaries and analytics</li>
+            <li>Category budgets</li>
+            <li>Full dashboard access</li>
+            <li>Daily and weekly notifications</li>
+          </ul>
+          <p>We reserve the right to introduce optional paid features in the future. If we do, existing free features will remain free and you will be clearly informed before any charges apply.</p>
         </section>
 
         <section id="acceptable">
@@ -89,7 +75,7 @@ export default function TermsPage() {
           <ul>
             <li>Attempt to reverse engineer, hack, or disrupt the service</li>
             <li>Use the service to store illegal financial activity records</li>
-            <li>Create multiple accounts to circumvent free plan limits</li>
+            <li>Create multiple accounts to abuse the service</li>
             <li>Automate requests in a way that burdens our infrastructure</li>
             <li>Attempt to access another user&apos;s data</li>
             <li>Use the service for any unlawful purpose</li>
@@ -117,7 +103,7 @@ export default function TermsPage() {
           <ul>
             <li>We are not liable for financial decisions made based on data shown in the app</li>
             <li>We are not liable for indirect, incidental, or consequential damages</li>
-            <li>Our total liability to you shall not exceed the amount you paid us in the 3 months prior to the claim</li>
+            <li>Our total liability to you shall not exceed €10 (ten euros), as Aura is a free service</li>
           </ul>
           <p>Aura displays the data you enter. You are responsible for the accuracy of your entries.</p>
         </section>

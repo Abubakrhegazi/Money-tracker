@@ -12,7 +12,7 @@ from database import (
 )
 from datetime import datetime
 
-FRONTEND_URL = "https://moneybot-beta.vercel.app"
+FRONTEND_URL = "https://aurabot.website"
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -67,7 +67,7 @@ def is_greeting(text: str) -> bool:
         return True
     if len(text) < 30 and not re.search(r'\d', text):
         financial_kw = re.compile(
-            r'(spent|paid|bought|cost|received|earned|salary|مرتب|صرفت|دفعت|اشتريت|استلمت|جالي|الف|مية)',
+            r'(spent|paid|bought|cost|received|earned|salary|مرتب|صرفت|دفعت|اشتريت|استلمت|جالي|معايا|معي|عندي|جيبي|الف|مية)',
             re.IGNORECASE
         )
         if not financial_kw.search(text):
@@ -89,7 +89,7 @@ CRITICAL RULES:
 4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
 5. The category MUST be one of the exact values listed below. Never use any other category.
 
-INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift
+INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift, معايا (Egyptian: "I have/got"), معي, عندي, جيبي, حصلت على, اتصرفلي
 EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
 
 Return ONLY this JSON:

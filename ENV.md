@@ -23,7 +23,7 @@ All required environment variables for the MoneyBot application.
 | `INTERNAL_API_KEY` | _(empty)_ | API key for bot→API internal calls |
 | `WHATSAPP_TOKEN` | _(empty)_ | WhatsApp Business API token |
 | `META_VERIFY_TOKEN` | _(empty)_ | Meta webhook verification token |
-| `FRONTEND_URL` | `https://moneybot-beta.vercel.app` | Dashboard URL (used in bot links) |
+| `FRONTEND_URL` | `https://aurabot.website` | Dashboard URL (used in bot links) |
 | `R2_ACCOUNT_ID` | _(empty)_ | Cloudflare R2 account ID (for DB backups) |
 | `R2_ACCESS_KEY_ID` | _(empty)_ | R2 API access key |
 | `R2_SECRET_ACCESS_KEY` | _(empty)_ | R2 API secret key |

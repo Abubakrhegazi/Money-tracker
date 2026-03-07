@@ -68,11 +68,11 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        "https://moneybot-beta.vercel.app",
+        "https://aurabot.website",
     ],
-    allow_origin_regex=r"https://moneybot[a-z0-9\-]*\.vercel\.app",
+    allow_origin_regex=r"https://aurabot\.website",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -242,6 +242,64 @@ async def expense_history(request: Request, user=Depends(get_current_user)):
             }
             for e in expenses
         ]
+    finally:
+        session.close()
+
+class UpdateExpenseBody(BaseModel):
+    amount: float | None = None
+    currency: str | None = None
+    category: str | None = None
+    merchant: str | None = None
+    entry_type: str | None = None
+
+_VALID_CATEGORIES = {
+    "food", "transport", "shopping", "bills", "entertainment",
+    "health", "education", "other",
+    "salary", "freelance", "gift", "refund", "investment", "other_income",
+}
+_VALID_ENTRY_TYPES = {"expense", "income"}
+
+@app.patch("/expenses/{expense_id}")
+@limiter.limit("30/minute")
+async def update_expense_api(request: Request, expense_id: int, body: UpdateExpenseBody, user=Depends(get_current_user)):
+    if body.amount is not None and body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    if body.category is not None and body.category not in _VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category")
+    if body.entry_type is not None and body.entry_type not in _VALID_ENTRY_TYPES:
+        raise HTTPException(status_code=400, detail="entry_type must be 'expense' or 'income'")
+
+    session = Session()
+    try:
+        expense = session.query(Expense).filter_by(
+            id=expense_id, telegram_user_id=user["sub"]
+        ).filter(Expense.is_deleted != True).first()
+        if not expense:
+            raise HTTPException(status_code=404, detail="Expense not found")
+        if body.amount is not None:
+            expense.amount = body.amount
+        if body.currency is not None:
+            expense.currency = body.currency
+        if body.category is not None:
+            expense.category = body.category
+        if body.merchant is not None:
+            expense.merchant = body.merchant or None
+        if body.entry_type is not None:
+            expense.entry_type = body.entry_type
+        session.commit()
+        return {
+            "id": expense.id,
+            "amount": expense.amount,
+            "currency": expense.currency,
+            "category": expense.category,
+            "merchant": expense.merchant,
+            "entry_type": expense.entry_type,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 

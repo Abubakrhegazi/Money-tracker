@@ -57,6 +57,27 @@ async function fetchWithAuthPost(endpoint: string, body: object) {
   return res.json();
 }
 
+async function fetchWithAuthPatch(endpoint: string, body: object) {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    removeToken();
+    window.location.href = "/";
+    throw new ApiError("Unauthorized", 401);
+  }
+  if (!res.ok) {
+    throw new ApiError(`API error: ${res.statusText}`, res.status);
+  }
+  return res.json();
+}
+
 async function fetchWithAuthDelete(endpoint: string) {
   const token = getToken();
   const res = await fetch(`${API_URL}${endpoint}`, {
@@ -81,6 +102,8 @@ export const api = {
   getBudget: () => fetchWithAuth("/budget"),
   setBudget: (category: string, amount: number, currency: string = "EGP") =>
     fetchWithAuthPost("/budget", { category, amount, currency }),
+  updateExpense: (id: number, body: { amount?: number; category?: string; merchant?: string; entry_type?: string }) =>
+    fetchWithAuthPatch(`/expenses/${id}`, body),
   deleteExpense: (id: number) => fetchWithAuthDelete(`/expenses/${id}`),
   deleteBudget: (category: string) => fetchWithAuthDelete(`/budget/${category}`),
   getNotificationSettings: () => fetchWithAuth("/notifications/settings"),
