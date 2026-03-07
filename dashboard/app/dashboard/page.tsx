@@ -621,7 +621,7 @@ export default function DashboardPage() {
                                 <span className={`font-semibold ${isIncome ? "text-emerald-400" : "text-white"}`}>
                                   {isIncome ? "+" : "-"}{e.amount.toLocaleString()}
                                 </span>
-                                <span className="text-gray-500 text-xs ml-1">{e.currency}</span>
+                                <span className="text-gray-500 text-xs ml-1">{e.currency || "EGP"}</span>
                               </td>
                               <td className="py-3 px-2">
                                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-2 transition">
@@ -691,7 +691,7 @@ export default function DashboardPage() {
                             <p className={`font-semibold text-sm ${isIncome ? "text-emerald-400" : "text-white"}`}>
                               {isIncome ? "+" : "-"}{e.amount.toLocaleString()}
                             </p>
-                            <p className="text-gray-600 text-[10px]">{e.currency}</p>
+                            <p className="text-gray-600 text-[10px]">{e.currency || "EGP"}</p>
                           </div>
                           <div className="flex flex-col gap-1.5 ml-1">
                             <button onClick={() => startEdit(e)} className="text-gray-700 hover:text-violet-400 transition"><Pencil size={13} /></button>

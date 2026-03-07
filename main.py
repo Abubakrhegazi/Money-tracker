@@ -116,6 +116,8 @@ If NOT a clear financial transaction with a specific amount, return {"error": "n
         amount = result.get("amount")
         if amount is None or amount == 0 or not isinstance(amount, (int, float)):
             return {"error": "no_amount"}
+        if not result.get("currency"):
+            result["currency"] = "EGP"
     return result
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
