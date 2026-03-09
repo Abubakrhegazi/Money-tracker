@@ -124,29 +124,34 @@ def get_gold_price_per_gram_egp() -> float:
         logger.warning(f"metals.live fallback failed: {e}")
         raise RuntimeError("Gold price unavailable from all sources")
 
-
 # ── Stocks ────────────────────────────────────────────────────────────────
 
 def get_stock_price_egp(ticker: str) -> tuple[float, float]:
     """Return (price_in_egp, price_in_usd) for a stock ticker.
-    Uses yfinance — no API key required."""
-    try:
-        import yfinance as yf
-    except ImportError:
-        raise RuntimeError("yfinance not installed. Run: pip install yfinance")
-
+    Uses Yahoo Finance chart API directly — no extra package required."""
     ticker = ticker.upper()
     try:
-        info = yf.Ticker(ticker).fast_info
-        price_usd = float(info.last_price)
-        currency = getattr(info, "currency", "USD").upper()
+        resp = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+            params={"interval": "1d", "range": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("chart", {}).get("result")
+        if not result:
+            raise ValueError(f"No data returned for ticker '{ticker}'")
+        meta = result[0]["meta"]
+        price = float(meta["regularMarketPrice"])
+        currency = meta.get("currency", "USD").upper()
         # Convert to EGP
         if currency == "EGP":
-            return price_usd, price_usd
+            return price, price
         egp_rate = get_egp_rate(currency)
-        price_egp = price_usd * egp_rate
-        logger.info(f"Stock {ticker}: {price_usd:.2f} {currency} = {price_egp:.2f} EGP")
-        return price_egp, price_usd
+        price_egp = price * egp_rate
+        logger.info(f"Stock {ticker}: {price:.2f} {currency} = {price_egp:.2f} EGP")
+        return price_egp, price
     except Exception as e:
         logger.warning(f"Stock price fetch failed for {ticker}: {e}")
         raise

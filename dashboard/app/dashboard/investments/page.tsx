@@ -128,7 +128,7 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Asset Type *</label>
-            <select className={inp} value={form.asset_type}
+            <select className={inp} style={{ colorScheme: 'dark' }} value={form.asset_type}
               onChange={e => setForm(f => ({ ...f, asset_type: e.target.value }))}>
               <option value="stocks">📈 Stocks</option>
               <option value="crypto">₿ Crypto</option>
@@ -174,7 +174,7 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Currency</label>
-              <select className={inp} value={form.currency}
+              <select className={inp} style={{ colorScheme: 'dark' }} value={form.currency}
                 onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
                 <option value="EGP">EGP</option>
                 <option value="USD">USD</option>
@@ -527,12 +527,18 @@ export default function InvestmentsPage() {
                               <div className="flex gap-4 mt-2">
                                 <div>
                                   <p className="text-[10px] text-gray-600 uppercase">Invested</p>
-                                  <p className="text-sm font-medium text-white">{inv.amount_invested.toLocaleString()}</p>
+                                  <p className="text-sm font-medium text-white">
+                                    {inv.amount_invested.toLocaleString()}
+                                    <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                  </p>
                                 </div>
                                 {inv.current_value != null && (
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Value</p>
-                                    <p className="text-sm font-medium text-white">{inv.current_value.toLocaleString()}</p>
+                                    <p className="text-sm font-medium text-white">
+                                      {inv.current_value.toLocaleString()}
+                                      <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                    </p>
                                   </div>
                                 )}
                                 {gain != null && (
