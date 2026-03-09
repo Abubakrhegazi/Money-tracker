@@ -143,6 +143,7 @@ class Investment(Base):
     ticker_symbol = Column(String(20), nullable=True) # stocks: e.g. TSLA
     coin_id = Column(String(50), nullable=True)       # crypto: e.g. bitcoin
     forex_pair = Column(String(10), nullable=True)    # currency: e.g. USD, EUR
+    karat = Column(Integer, nullable=True)            # gold: 24, 21, 18, 14
     price_per_unit = Column(Float, nullable=True)     # price per unit at purchase
     current_price = Column(Float, nullable=True)      # latest fetched price
     last_price_update = Column(DateTime, nullable=True)
@@ -211,6 +212,7 @@ def init_db():
                 "ticker_symbol": "VARCHAR(20)",
                 "coin_id": "VARCHAR(50)",
                 "forex_pair": "VARCHAR(10)",
+                "karat": "INTEGER",
                 "price_per_unit": "FLOAT",
                 "current_price": "FLOAT",
                 "last_price_update": "TIMESTAMP",
@@ -1081,6 +1083,7 @@ def save_investment(user_id: str, data: dict) -> str:
             ticker_symbol=data.get("ticker_symbol"),
             coin_id=data.get("coin_id"),
             forex_pair=data.get("forex_pair"),
+            karat=data.get("karat"),
             price_per_unit=data.get("price_per_unit"),
         )
         session.add(inv)

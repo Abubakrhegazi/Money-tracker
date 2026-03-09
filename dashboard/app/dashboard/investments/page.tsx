@@ -86,10 +86,30 @@ function NavItem({ icon, label, active, onClick }: {
   );
 }
 
-/* ── Custom Asset Type Dropdown ────────────────────────────── */
-function AssetTypeDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+const KARATS = [
+  { value: "24", label: "24k — Pure Gold", emoji: "✨" },
+  { value: "21", label: "21k — 87.5% Pure", emoji: "🥇" },
+  { value: "18", label: "18k — 75% Pure", emoji: "🥈" },
+  { value: "14", label: "14k — 58.3% Pure", emoji: "🥉" },
+];
+
+const CURRENCIES = [
+  { value: "EGP", label: "EGP — Egyptian Pound", emoji: "🇪🇬" },
+  { value: "USD", label: "USD — US Dollar", emoji: "🇺🇸" },
+  { value: "EUR", label: "EUR — Euro", emoji: "🇪🇺" },
+  { value: "GBP", label: "GBP — British Pound", emoji: "🇬🇧" },
+  { value: "SAR", label: "SAR — Saudi Riyal", emoji: "🇸🇦" },
+  { value: "AED", label: "AED — UAE Dirham", emoji: "🇦🇪" },
+];
+
+/* ── Reusable custom dropdown ──────────────────────────────── */
+function CustomDropdown({ value, onChange, options }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string; emoji: string }[];
+}) {
   const [open, setOpen] = useState(false);
-  const selected = ASSET_TYPES.find(a => a.value === value) || ASSET_TYPES[0];
+  const selected = options.find(a => a.value === value) || options[0];
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen(o => !o)}
@@ -99,7 +119,7 @@ function AssetTypeDropdown({ value, onChange }: { value: string; onChange: (v: s
       </button>
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-          {ASSET_TYPES.map(a => (
+          {options.map(a => (
             <button key={a.value} type="button"
               onClick={() => { onChange(a.value); setOpen(false); }}
               className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition hover:bg-white/5 ${a.value === value ? "text-violet-400 bg-violet-500/10" : "text-gray-200"}`}>
@@ -119,16 +139,34 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     amount_invested: "", current_value: "",
     currency: "EGP", notes: "",
     date: new Date().toISOString().slice(0, 10),
-    grams: "", ticker_symbol: "", coin_id: "", forex_pair: "",
+    grams: "", karat: "21", ticker_symbol: "", coin_id: "",
+    forex_pair: "", buy_rate: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const isCurrency = form.asset_type === "currency";
+  const isGold = form.asset_type === "gold";
+
+  // Computed: how many foreign currency units the user holds
+  const unitsHeld = (() => {
+    if (!isCurrency) return null;
+    const amt = parseFloat(form.amount_invested);
+    const rate = parseFloat(form.buy_rate);
+    if (!isNaN(amt) && !isNaN(rate) && rate > 0) return (amt / rate).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return null;
+  })();
+
   const save = async () => {
     if (!form.asset_name.trim()) { setError("Asset name is required"); return; }
-    if (form.asset_type === "currency" && !form.forex_pair.trim()) { setError("Currency pair is required (e.g. USD)"); return; }
+    if (isCurrency && !form.forex_pair.trim()) { setError("Currency you hold is required (e.g. USD)"); return; }
+    if (isCurrency && !form.buy_rate.trim()) { setError("Rate you bought at is required"); return; }
     const amount = parseFloat(form.amount_invested);
     if (isNaN(amount) || amount <= 0) { setError("Enter a valid amount"); return; }
+    if (isCurrency) {
+      const rate = parseFloat(form.buy_rate);
+      if (isNaN(rate) || rate <= 0) { setError("Enter a valid buy rate"); return; }
+    }
     setSaving(true); setError("");
     try {
       await api.createInvestment({
@@ -140,9 +178,11 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
         notes: form.notes || undefined,
         date: form.date,
         grams: form.grams ? parseFloat(form.grams) : undefined,
+        karat: isGold && form.karat ? parseInt(form.karat) : undefined,
         ticker_symbol: form.ticker_symbol || undefined,
         coin_id: form.coin_id || undefined,
         forex_pair: form.forex_pair.toUpperCase() || undefined,
+        price_per_unit: form.buy_rate ? parseFloat(form.buy_rate) : undefined,
       });
       onSaved();
     } catch (e: any) { setError(e.message || "Failed to save"); }
@@ -166,69 +206,110 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Asset Type *</label>
-            <AssetTypeDropdown value={form.asset_type} onChange={v => setForm(f => ({ ...f, asset_type: v }))} />
+            <CustomDropdown value={form.asset_type} onChange={v => setForm(f => ({ ...f, asset_type: v }))} options={ASSET_TYPES} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Amount Invested *</label>
-              <input className={inp} type="number" placeholder="10000" value={form.amount_invested}
-                onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Current Value</label>
-              <input className={inp} type="number" placeholder="optional" value={form.current_value}
-                onChange={e => setForm(f => ({ ...f, current_value: e.target.value }))} />
-            </div>
-          </div>
-          {/* Type-specific fields */}
-          {form.asset_type === "gold" && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Grams</label>
-              <input className={inp} type="number" placeholder="e.g. 10" value={form.grams}
-                onChange={e => setForm(f => ({ ...f, grams: e.target.value }))} />
-            </div>
+
+          {/* Currency-specific layout */}
+          {isCurrency ? (
+            <>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Currency You Hold *</label>
+                <input className={inp} placeholder="e.g. USD, EUR, GBP, SAR" value={form.forex_pair}
+                  onChange={e => setForm(f => ({ ...f, forex_pair: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">
+                    Amount Spent * <span className="text-gray-600">({form.currency})</span>
+                  </label>
+                  <input className={inp} type="number" placeholder="e.g. 10000" value={form.amount_invested}
+                    onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">
+                    Rate You Bought At *
+                  </label>
+                  <input className={inp} type="number" placeholder={`${form.currency}/${form.forex_pair || "USD"}`} value={form.buy_rate}
+                    onChange={e => setForm(f => ({ ...f, buy_rate: e.target.value }))} />
+                </div>
+              </div>
+              {unitsHeld && (
+                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                  <span className="text-lg">💱</span>
+                  <div>
+                    <p className="text-xs text-cyan-300 font-medium">You hold ≈ {unitsHeld} {form.forex_pair || "units"}</p>
+                    <p className="text-[10px] text-gray-500">Live rate will be fetched to track current value</p>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Your Currency</label>
+                  <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Date</label>
+                  <input className={inp} type="date" value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Amount Invested *</label>
+                  <input className={inp} type="number" placeholder="10000" value={form.amount_invested}
+                    onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Current Value</label>
+                  <input className={inp} type="number" placeholder="optional" value={form.current_value}
+                    onChange={e => setForm(f => ({ ...f, current_value: e.target.value }))} />
+                </div>
+              </div>
+              {isGold && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Grams *</label>
+                    <input className={inp} type="number" placeholder="e.g. 10" value={form.grams}
+                      onChange={e => setForm(f => ({ ...f, grams: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Karat</label>
+                    <CustomDropdown value={form.karat} onChange={v => setForm(f => ({ ...f, karat: v }))} options={KARATS} />
+                  </div>
+                </div>
+              )}
+              {form.asset_type === "stocks" && (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Ticker Symbol</label>
+                  <input className={inp} placeholder="e.g. TSLA, AAPL" value={form.ticker_symbol}
+                    onChange={e => setForm(f => ({ ...f, ticker_symbol: e.target.value.toUpperCase() }))} />
+                  <p className="text-[10px] text-gray-600 mt-1">For Egyptian stocks, use TICKER.CA (e.g. COMI.CA for CIB)</p>
+                </div>
+              )}
+              {form.asset_type === "crypto" && (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Coin ID</label>
+                  <input className={inp} placeholder="e.g. bitcoin, ethereum" value={form.coin_id}
+                    onChange={e => setForm(f => ({ ...f, coin_id: e.target.value.toLowerCase() }))} />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Your Currency</label>
+                  <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Date</label>
+                  <input className={inp} type="date" value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+              </div>
+            </>
           )}
-          {form.asset_type === "stocks" && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Ticker Symbol</label>
-              <input className={inp} placeholder="e.g. TSLA, AAPL" value={form.ticker_symbol}
-                onChange={e => setForm(f => ({ ...f, ticker_symbol: e.target.value.toUpperCase() }))} />
-            </div>
-          )}
-          {form.asset_type === "crypto" && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Coin ID</label>
-              <input className={inp} placeholder="e.g. bitcoin, ethereum" value={form.coin_id}
-                onChange={e => setForm(f => ({ ...f, coin_id: e.target.value.toLowerCase() }))} />
-            </div>
-          )}
-          {form.asset_type === "currency" && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Currency Pair * <span className="text-gray-600">(the currency you hold)</span></label>
-              <input className={inp} placeholder="e.g. USD, EUR, GBP, SAR" value={form.forex_pair}
-                onChange={e => setForm(f => ({ ...f, forex_pair: e.target.value.toUpperCase() }))} />
-              <p className="text-[10px] text-gray-600 mt-1">Live exchange rate to EGP will be fetched automatically.</p>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Your Currency</label>
-              <select className={inp} style={{ colorScheme: 'dark' }} value={form.currency}
-                onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-                <option value="EGP">EGP</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-                <option value="SAR">SAR</option>
-                <option value="AED">AED</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Date</label>
-              <input className={inp} type="date" value={form.date}
-                onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-            </div>
-          </div>
+
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Notes</label>
             <input className={inp} placeholder="optional" value={form.notes}
@@ -485,7 +566,7 @@ export default function InvestmentsPage() {
                                     <p className="font-medium text-gray-200">{inv.asset_name}</p>
                                     <p className="text-gray-600 text-xs">
                                       {inv.ticker_symbol && <span className="mr-1">{inv.ticker_symbol}</span>}
-                                      {inv.grams && <span>{inv.grams}g</span>}
+                                      {inv.grams && <span>{inv.karat ? `${inv.karat}k · ` : ""}{inv.grams}g</span>}
                                       {inv.forex_pair && <span className="mr-1">{inv.forex_pair}</span>}
                                       {inv.notes && !inv.ticker_symbol && !inv.grams && !inv.forex_pair && <span className="truncate max-w-[120px] inline-block">{inv.notes}</span>}
                                     </p>
@@ -559,7 +640,7 @@ export default function InvestmentsPage() {
                               <div className="flex justify-between items-start">
                                 <div>
                                   <p className="font-medium text-gray-200 text-sm">{inv.asset_name}</p>
-                                  <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]}{inv.forex_pair ? ` · ${inv.forex_pair}` : inv.ticker_symbol ? ` · ${inv.ticker_symbol}` : ""} · {inv.date}</p>
+                                  <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]}{inv.forex_pair ? ` · ${inv.forex_pair}` : inv.ticker_symbol ? ` · ${inv.ticker_symbol}` : inv.grams ? ` · ${inv.karat ? `${inv.karat}k · ` : ""}${inv.grams}g` : ""} · {inv.date}</p>
                                 </div>
                                 <button onClick={() => handleDelete(inv.id)} disabled={deletingId === inv.id}
                                   className="text-gray-700 hover:text-rose-400 transition ml-2 mt-0.5">

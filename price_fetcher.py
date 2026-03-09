@@ -186,25 +186,102 @@ def normalize_coin_id(name: str) -> str:
     return COIN_ID_MAP.get(key, key)  # fall through as-is if not in map
 
 
+# CoinGecko ID → Binance/Kraken ticker symbol mapping
+_BINANCE_SYMBOL: dict[str, str] = {
+    "bitcoin": "BTCUSDT", "ethereum": "ETHUSDT", "tether": "USDTUSDT",
+    "binancecoin": "BNBUSDT", "solana": "SOLUSDT", "ripple": "XRPUSDT",
+    "usd-coin": "USDCUSDT", "dogecoin": "DOGEUSDT", "cardano": "ADAUSDT",
+    "avalanche-2": "AVAXUSDT", "polkadot": "DOTUSDT", "matic-network": "MATICUSDT",
+    "chainlink": "LINKUSDT", "shiba-inu": "SHIBUSDT", "litecoin": "LTCUSDT",
+    "the-open-network": "TONUSDT",
+}
+_COINCAP_ID: dict[str, str] = {
+    "bitcoin": "bitcoin", "ethereum": "ethereum", "tether": "tether",
+    "binancecoin": "binance-coin", "solana": "solana", "ripple": "xrp",
+    "dogecoin": "dogecoin", "cardano": "cardano", "avalanche-2": "avalanche",
+    "polkadot": "polkadot", "matic-network": "polygon", "chainlink": "chainlink",
+    "shiba-inu": "shiba-inu", "litecoin": "litecoin", "the-open-network": "toncoin",
+}
+
+
 def get_crypto_price_egp(coin_id: str) -> float:
-    """Return current price of a coin in EGP via CoinGecko free API."""
+    """Return current price of a coin in EGP.
+    Sources tried in order: CoinGecko → Binance+forex → Kraken+forex → CoinCap+forex.
+    """
     coin_id = normalize_coin_id(coin_id)
+
+    # ── 1. CoinGecko (supports EGP directly) ──────────────────────────────
     try:
         resp = requests.get(
             "https://api.coingecko.com/api/v3/simple/price",
             params={"ids": coin_id, "vs_currencies": "egp"},
-            timeout=15,
+            timeout=12,
         )
         resp.raise_for_status()
         data = resp.json()
-        if coin_id not in data:
-            raise ValueError(f"Coin '{coin_id}' not found on CoinGecko")
-        price = float(data[coin_id]["egp"])
-        logger.info(f"Crypto {coin_id}: {price:.4f} EGP")
-        return price
+        if coin_id in data and "egp" in data[coin_id]:
+            price = float(data[coin_id]["egp"])
+            logger.info(f"Crypto {coin_id} (CoinGecko): {price:.4f} EGP")
+            return price
     except Exception as e:
-        logger.warning(f"Crypto price fetch failed for {coin_id}: {e}")
-        raise
+        logger.warning(f"CoinGecko failed for {coin_id}: {e}")
+
+    # ── 2. Binance ticker → convert USD→EGP ───────────────────────────────
+    binance_sym = _BINANCE_SYMBOL.get(coin_id)
+    if binance_sym:
+        try:
+            resp = requests.get(
+                "https://api.binance.com/api/v3/ticker/price",
+                params={"symbol": binance_sym},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            price_usd = float(resp.json()["price"])
+            egp_rate = get_egp_rate("USD")
+            price_egp = price_usd * egp_rate
+            logger.info(f"Crypto {coin_id} (Binance): {price_usd:.4f} USD = {price_egp:.4f} EGP")
+            return price_egp
+        except Exception as e:
+            logger.warning(f"Binance failed for {coin_id} ({binance_sym}): {e}")
+
+    # ── 3. Kraken spot price → convert USD→EGP ────────────────────────────
+    try:
+        # Kraken uses XBT for Bitcoin
+        kraken_base = "XBT" if coin_id == "bitcoin" else coin_id.upper()
+        resp = requests.get(
+            f"https://api.kraken.com/0/public/Ticker",
+            params={"pair": f"{kraken_base}USD"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("result", {})
+        if result:
+            pair_data = next(iter(result.values()))
+            price_usd = float(pair_data["c"][0])
+            egp_rate = get_egp_rate("USD")
+            price_egp = price_usd * egp_rate
+            logger.info(f"Crypto {coin_id} (Kraken): {price_usd:.4f} USD = {price_egp:.4f} EGP")
+            return price_egp
+    except Exception as e:
+        logger.warning(f"Kraken failed for {coin_id}: {e}")
+
+    # ── 4. CoinCap (no key needed) → convert USD→EGP ─────────────────────
+    coincap_id = _COINCAP_ID.get(coin_id, coin_id)
+    try:
+        resp = requests.get(
+            f"https://api.coincap.io/v2/assets/{coincap_id}",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        price_usd = float(resp.json()["data"]["priceUsd"])
+        egp_rate = get_egp_rate("USD")
+        price_egp = price_usd * egp_rate
+        logger.info(f"Crypto {coin_id} (CoinCap): {price_usd:.4f} USD = {price_egp:.4f} EGP")
+        return price_egp
+    except Exception as e:
+        logger.warning(f"CoinCap failed for {coin_id}: {e}")
+
+    raise RuntimeError(f"Crypto price unavailable for '{coin_id}' from all sources")
 
 
 # ── Master refresh ────────────────────────────────────────────────────────
@@ -229,10 +306,12 @@ def refresh_all_investment_prices():
             current_value = None
 
             if inv.asset_type == "gold" and inv.grams:
-                price_per_gram = get_gold_price_per_gram_egp()
+                price_per_gram_24k = get_gold_price_per_gram_egp()
+                karat_factor = (inv.karat / 24) if inv.karat else 1.0
+                price_per_gram = price_per_gram_24k * karat_factor
                 current_price = price_per_gram
                 current_value = inv.grams * price_per_gram
-                record_price_history("gold", "gold", price_per_gram, "EGP")
+                record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
@@ -282,10 +361,12 @@ def refresh_user_investment_prices(user_id: str):
             current_value = None
 
             if inv.asset_type == "gold" and inv.grams:
-                price_per_gram = get_gold_price_per_gram_egp()
+                price_per_gram_24k = get_gold_price_per_gram_egp()
+                karat_factor = (inv.karat / 24) if inv.karat else 1.0
+                price_per_gram = price_per_gram_24k * karat_factor
                 current_price = price_per_gram
                 current_value = inv.grams * price_per_gram
-                record_price_history("gold", "gold", price_per_gram, "EGP")
+                record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)

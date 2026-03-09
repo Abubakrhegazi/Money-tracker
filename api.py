@@ -463,6 +463,7 @@ class InvestmentBody(BaseModel):
     ticker_symbol: str | None = None
     coin_id: str | None = None
     forex_pair: str | None = None
+    karat: int | None = None
     price_per_unit: float | None = None
 
 class UpdateInvestmentBody(BaseModel):
@@ -493,6 +494,7 @@ async def get_user_investments(request: Request, user=Depends(get_current_user))
             "ticker_symbol": i.ticker_symbol,
             "coin_id": i.coin_id,
             "forex_pair": i.forex_pair,
+            "karat": i.karat,
             "price_per_unit": i.price_per_unit,
             "current_price": i.current_price,
             "last_price_update": i.last_price_update.isoformat() if i.last_price_update else None,
@@ -523,6 +525,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
         "ticker_symbol": body.ticker_symbol,
         "coin_id": body.coin_id,
         "forex_pair": body.forex_pair.upper() if body.forex_pair else None,
+        "karat": body.karat,
         "price_per_unit": body.price_per_unit,
     })
     return {"id": inv_id, "status": "created"}
