@@ -60,11 +60,17 @@ def get_gold_price_per_gram_egp() -> float:
     """
     if GOLD_API_KEY:
         try:
-            resp = requests.get(
-                "https://www.goldapi.io/api/XAU/USD",
-                headers={"x-access-token": GOLD_API_KEY, "Content-Type": "application/json"},
-                timeout=10,
-            )
+            symbol = "XAU"
+            curr = "USD"
+            date = ""
+
+            url = f"https://www.goldapi.io/api/{symbol}/{curr}{date}"
+            headers = {
+                "x-access-token": GOLD_API_KEY,
+                "Content-Type": "application/json"
+            }
+
+            resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
             price_per_oz_usd = float(data["price"])
