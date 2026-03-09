@@ -895,7 +895,7 @@ export default function InvestmentsPage() {
       </nav>
 
       {showModal && (
-        <AddInvestmentModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); loadData(); }} />
+        <AddInvestmentModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); handlePriceRefresh(); }} />
       )}
     </div>
   );

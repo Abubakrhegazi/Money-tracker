@@ -537,10 +537,20 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
             price_per_unit = get_egp_rate(body.forex_pair.upper())
         except Exception:
             price_per_unit = None
+    # Gold: if no amount provided, compute from today's price × grams
+    amount_invested = body.amount_invested
+    if body.asset_type == "gold" and amount_invested == 0 and body.grams:
+        try:
+            from price_fetcher import get_gold_price_per_gram_egp
+            price_per_gram_24k = get_gold_price_per_gram_egp()
+            karat_factor = (body.karat / 24) if body.karat else 1.0
+            amount_invested = round(body.grams * price_per_gram_24k * karat_factor, 2)
+        except Exception:
+            amount_invested = 0
     inv_id = save_investment(user["sub"], {
         "asset_name": body.asset_name,
         "asset_type": body.asset_type,
-        "amount_invested": body.amount_invested,
+        "amount_invested": amount_invested,
         "current_value": body.current_value,
         "currency": body.currency,
         "notes": body.notes,
