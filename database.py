@@ -1153,14 +1153,19 @@ def get_investment_summary(user_id: str) -> dict:
     """Return summary stats for a user's investments."""
     user_id = get_primary_id(user_id)
     investments = get_investments(user_id)
-    total_invested = sum(i.amount_invested for i in investments)
+    total_invested = sum(i.amount_invested for i in investments if i.amount_invested > 0)
     total_current = sum(i.current_value for i in investments if i.current_value is not None)
     has_current = any(i.current_value is not None for i in investments)
-    total_gain = (total_current - total_invested) if has_current else None
-    gain_pct = (total_gain / total_invested * 100) if (has_current and total_invested > 0) else None
+    # Only compute gain/loss for investments where we have a known cost basis
+    gainable = [i for i in investments if i.current_value is not None and i.amount_invested > 0]
+    gain_invested = sum(i.amount_invested for i in gainable)
+    gain_current = sum(i.current_value for i in gainable)
+    total_gain = (gain_current - gain_invested) if gainable else None
+    gain_pct = (total_gain / gain_invested * 100) if (gainable and gain_invested > 0) else None
     breakdown: dict[str, float] = {}
     for inv in investments:
-        breakdown[inv.asset_type] = breakdown.get(inv.asset_type, 0) + inv.amount_invested
+        # Use current_value for allocation if available (more accurate), else amount_invested
+        breakdown[inv.asset_type] = breakdown.get(inv.asset_type, 0) + (inv.current_value or inv.amount_invested)
     return {
         "total_invested": total_invested,
         "current_value": total_current if has_current else None,

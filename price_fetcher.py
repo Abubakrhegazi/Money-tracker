@@ -317,21 +317,21 @@ def refresh_all_investment_prices():
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
                 # units = amount_invested / price_per_unit (at purchase)
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * price_egp
                 record_price_history("stocks", inv.ticker_symbol.upper(), price_egp, "EGP")
 
             elif inv.asset_type == "crypto" and inv.coin_id:
                 price_egp = get_crypto_price_egp(inv.coin_id)
                 current_price = price_egp
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * price_egp
                 record_price_history("crypto", normalize_coin_id(inv.coin_id), price_egp, "EGP")
 
             elif inv.asset_type == "currency" and inv.forex_pair:
                 rate = get_egp_rate(inv.forex_pair)
                 current_price = rate
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * rate
                 record_price_history("currency", inv.forex_pair.upper(), rate, "EGP")
 
@@ -371,21 +371,21 @@ def refresh_user_investment_prices(user_id: str):
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * price_egp
                 record_price_history("stocks", inv.ticker_symbol.upper(), price_egp, "EGP")
 
             elif inv.asset_type == "crypto" and inv.coin_id:
                 price_egp = get_crypto_price_egp(inv.coin_id)
                 current_price = price_egp
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * price_egp
                 record_price_history("crypto", normalize_coin_id(inv.coin_id), price_egp, "EGP")
 
             elif inv.asset_type == "currency" and inv.forex_pair:
                 rate = get_egp_rate(inv.forex_pair)
                 current_price = rate
-                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)
                 current_value = units * rate
                 record_price_history("currency", inv.forex_pair.upper(), rate, "EGP")
 

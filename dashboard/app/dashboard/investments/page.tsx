@@ -738,7 +738,7 @@ export default function InvestmentsPage() {
                       </thead>
                       <tbody>
                         {investments.map((inv) => {
-                          const gain = inv.current_value != null ? inv.current_value - inv.amount_invested : null;
+                          const gain = inv.current_value != null && inv.amount_invested > 0 ? inv.current_value - inv.amount_invested : null;
                           const gainPctRow = gain != null && inv.amount_invested > 0 ? (gain / inv.amount_invested) * 100 : null;
                           const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
                           const hasPrice = inv.current_value != null;
@@ -765,8 +765,8 @@ export default function InvestmentsPage() {
                                 </span>
                               </td>
                               <td className="py-3 px-2 text-right text-gray-300">
-                                {inv.amount_invested.toLocaleString()}
-                                <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                {inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : <span className="text-gray-600 text-xs">—</span>}
+                                {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>}
                               </td>
                               <td className="py-3 px-2 text-right">
                                 {hasPrice ? (
@@ -814,7 +814,7 @@ export default function InvestmentsPage() {
                   {/* Mobile cards */}
                   <div className="lg:hidden space-y-2">
                     {investments.map((inv) => {
-                      const gain = inv.current_value != null ? inv.current_value - inv.amount_invested : null;
+                      const gain = inv.current_value != null && inv.amount_invested > 0 ? inv.current_value - inv.amount_invested : null;
                       const gainPctRow = gain != null && inv.amount_invested > 0 ? (gain / inv.amount_invested) * 100 : null;
                       const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
                       return (
@@ -836,8 +836,8 @@ export default function InvestmentsPage() {
                                 <div>
                                   <p className="text-[10px] text-gray-600 uppercase">Invested</p>
                                   <p className="text-sm font-medium text-white">
-                                    {inv.amount_invested.toLocaleString()}
-                                    <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                    {inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : <span className="text-gray-600 text-xs">—</span>}
+                                    {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>}
                                   </p>
                                 </div>
                                 {inv.current_value != null && (
