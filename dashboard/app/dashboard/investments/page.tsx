@@ -349,9 +349,15 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 py-2.5">
-                    <AlertTriangle size={12} className="text-rose-400 shrink-0" />
-                    <p className="text-xs text-rose-400">Ticker not found — check the symbol and try again</p>
+                  <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+                    {form.is_egyptian ? (
+                      <p className="text-xs text-amber-400">Egyptian Exchange (EGX) stocks don&apos;t have live pricing — enter your total amount invested below and use the Edit button to update the value manually.</p>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                        <p className="text-xs text-amber-400">Ticker not found — check the symbol and try again</p>
+                      </div>
+                    )}
                   </div>
                 )
               )}
@@ -1071,8 +1077,10 @@ export default function InvestmentsPage() {
                                     {inv.current_value.toLocaleString()}
                                     <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
                                   </span>
+                                ) : inv.ticker_symbol?.endsWith(".CA") ? (
+                                  <span className="text-[10px] text-amber-600 bg-amber-500/8 px-1.5 py-0.5 rounded">Manual</span>
                                 ) : (
-                                  <span className="text-gray-600 text-xs">Price unavailable</span>
+                                  <span className="text-gray-600 text-xs">—</span>
                                 )}
                               </td>
                               <td className="py-3 px-2 text-right font-medium">
@@ -1148,7 +1156,7 @@ export default function InvestmentsPage() {
                                     {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>}
                                   </p>
                                 </div>
-                                {inv.current_value != null && (
+                                {inv.current_value != null ? (
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Value</p>
                                     <p className="text-sm font-medium text-white">
@@ -1156,7 +1164,12 @@ export default function InvestmentsPage() {
                                       <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
                                     </p>
                                   </div>
-                                )}
+                                ) : inv.ticker_symbol?.endsWith(".CA") ? (
+                                  <div>
+                                    <p className="text-[10px] text-gray-600 uppercase">Value</p>
+                                    <span className="text-[10px] text-amber-600 bg-amber-500/8 px-1.5 py-0.5 rounded">Manual</span>
+                                  </div>
+                                ) : null}
                                 {gain != null && (
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Gain</p>

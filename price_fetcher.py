@@ -314,6 +314,8 @@ def refresh_all_investment_prices():
                 record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
+                if inv.ticker_symbol.upper().endswith(".CA"):
+                    continue  # EGX (Egyptian Exchange) — no reliable free API; user updates manually
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
                 # units = amount_invested / price_per_unit (at purchase)
@@ -369,6 +371,8 @@ def refresh_user_investment_prices(user_id: str):
                 record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
+                if inv.ticker_symbol.upper().endswith(".CA"):
+                    continue  # EGX (Egyptian Exchange) — no reliable free API; user updates manually
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
                 units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)

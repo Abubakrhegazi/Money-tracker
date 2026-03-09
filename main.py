@@ -101,11 +101,12 @@ Return ONLY this JSON:
 {
   "entry_type": "investment",
   "asset_name": <specific name like "Tesla", "Bitcoin", "Gold" — never null>,
-  "asset_type": <one of: stocks|crypto|gold|real_estate|other>,
+  "asset_type": <one of: stocks|crypto|gold|real_estate|currency|other>,
   "amount": <number — the EGP/cash amount invested, or null if only quantity given>,
   "quantity": <number — grams for gold, units for crypto, shares for stocks, or null if not mentioned>,
   "ticker_symbol": <stock ticker like "TSLA", "AAPL", or null>,
   "coin_id": <coin name like "bitcoin", "ethereum", "solana", or null>,
+  "forex_pair": <currency code like "USD", "EUR", "GBP" — only for currency asset_type, else null>,
   "currency": <"EGP" if not mentioned>,
   "date": <"today" if not mentioned>
 }
@@ -115,13 +116,15 @@ asset_type mapping:
 - crypto: bitcoin, ethereum, BTC, ETH, عمله رقمية — set coin_id to lowercase coin name
 - gold: gold, ذهب — quantity is grams
 - real_estate: property, apartment, عقار, شقه
+- currency: USD, EUR, دولار, يورو, جنيه استرليني — set forex_pair to the currency code
 - other: anything else
 
 Examples:
-"bought 10 grams of gold" → asset_type=gold, quantity=10, amount=null, ticker_symbol=null, coin_id=null
-"invested 5000 in Tesla" → asset_type=stocks, amount=5000, ticker_symbol=TSLA, coin_id=null
-"bought 0.1 bitcoin" → asset_type=crypto, quantity=0.1, amount=null, coin_id=bitcoin
-"invested 50000 in bitcoin" → asset_type=crypto, amount=50000, coin_id=bitcoin
+"bought 10 grams of gold" → asset_type=gold, quantity=10, amount=null
+"invested 5000 in Tesla" → asset_type=stocks, amount=5000, ticker_symbol=TSLA
+"bought 0.1 bitcoin" → asset_type=crypto, quantity=0.1, coin_id=bitcoin
+"bought 1000 dollars" → asset_type=currency, amount=null, forex_pair=USD
+"invested 50000 EGP in USD" → asset_type=currency, amount=50000, forex_pair=USD
 
 Arabic numbers: الف=1000, الفين=2000, مية=100.
 If NOT a clear investment message, return {"error": "not_an_investment"}"""
@@ -221,11 +224,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 inv_date = _date.today().isoformat()
 
             asset_type = investment.get("asset_type", "other")
-            asset_name = investment["asset_name"]
+            # Clean up asset name: strip whitespace, capitalize each word
+            raw_name = investment["asset_name"].strip()
+            asset_name = " ".join(w.capitalize() for w in raw_name.split()) if raw_name else "Investment"
             quantity = investment.get("quantity")
             amount = investment.get("amount")
             ticker = investment.get("ticker_symbol")
             coin_id = investment.get("coin_id")
+            forex_pair = investment.get("forex_pair")
             currency = investment.get("currency", "EGP")
 
             # Attempt live price fetch to fill in amount or enrich data
@@ -257,6 +263,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if quantity and not amount:
                         amount = quantity * price_egp
                     live_price_note = f"_{price_egp:,.2f} EGP/{coin_id}_"
+                elif asset_type == "currency" and forex_pair:
+                    from price_fetcher import get_egp_rate
+                    rate = get_egp_rate(forex_pair.upper())
+                    price_per_unit = rate  # stores the purchase exchange rate
+                    if quantity and not amount:
+                        amount = quantity * rate  # foreign units × rate = EGP
+                    live_price_note = f"_1 {forex_pair.upper()} = {rate:,.4f} EGP_"
             except Exception as e:
                 logger.warning(f"Live price fetch failed during bot parse: {e}")
 
@@ -277,6 +290,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "grams": quantity if asset_type == "gold" else None,
                 "ticker_symbol": ticker,
                 "coin_id": normalize_coin_id(coin_id) if coin_id else None,
+                "forex_pair": forex_pair.upper() if forex_pair else None,
                 "price_per_unit": price_per_unit,
             })
 
