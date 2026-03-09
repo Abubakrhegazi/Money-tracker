@@ -27,17 +27,55 @@ _forex_cache: dict[str, tuple[float, float]] = {}  # symbol -> (rate, timestamp)
 
 def get_egp_rate(from_currency: str) -> float:
     """Return how many EGP 1 unit of from_currency is worth.
-    Primary: open.er-api.com (free, supports EGP)
-    Fallback: frankfurter.app (free, but does NOT support EGP)"""
+    Primary: Yahoo Finance (near-real-time interbank rate)
+    Secondary: Wise (mid-market rate, no key)
+    Fallback: open.er-api.com, frankfurter.app"""
     from_currency = from_currency.upper()
     if from_currency == "EGP":
         return 1.0
     import time
     cached = _forex_cache.get(from_currency)
-    if cached and (time.time() - cached[1]) < 3600:  # 1h cache
+    if cached and (time.time() - cached[1]) < 1800:  # 30min cache
         return cached[0]
 
-    # Primary: open.er-api.com (supports EGP)
+    # 1. Yahoo Finance — near-real-time interbank rate (e.g. USDEGP=X)
+    try:
+        pair = f"{from_currency}EGP=X"
+        resp = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{pair}",
+            params={"interval": "1d", "range": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("chart", {}).get("result")
+        if result:
+            rate = float(result[0]["meta"]["regularMarketPrice"])
+            if rate > 0:
+                _forex_cache[from_currency] = (rate, time.time())
+                logger.info(f"Forex (Yahoo): 1 {from_currency} = {rate:.4f} EGP")
+                return rate
+    except Exception as e:
+        logger.warning(f"Yahoo Finance forex failed for {from_currency}: {e}")
+
+    # 2. Wise (TransferWise) — accurate mid-market rate, no key
+    try:
+        resp = requests.get(
+            f"https://api.wise.com/v1/rates?source={from_currency}&target=EGP",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data and len(data) > 0:
+            rate = float(data[0]["rate"])
+            _forex_cache[from_currency] = (rate, time.time())
+            logger.info(f"Forex (Wise): 1 {from_currency} = {rate:.4f} EGP")
+            return rate
+    except Exception as e:
+        logger.warning(f"Wise API failed for {from_currency}: {e}")
+
+    # 3. open.er-api.com (ECB-based, may lag)
     try:
         resp = requests.get(
             f"https://open.er-api.com/v6/latest/{from_currency}",
@@ -53,7 +91,7 @@ def get_egp_rate(from_currency: str) -> float:
     except Exception as e:
         logger.warning(f"open.er-api.com failed for {from_currency}: {e}")
 
-    # Fallback: frankfurter.app
+    # 4. frankfurter.app (last resort)
     try:
         resp = requests.get(
             f"https://api.frankfurter.app/latest?from={from_currency}&to=EGP",
@@ -314,8 +352,7 @@ def refresh_all_investment_prices():
                 record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
-                if inv.ticker_symbol.upper().endswith(".CA"):
-                    continue  # EGX (Egyptian Exchange) — no reliable free API; user updates manually
+                # EGX (.CA) tickers are also handled by Yahoo Finance
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
                 # units = amount_invested / price_per_unit (at purchase)
@@ -371,8 +408,7 @@ def refresh_user_investment_prices(user_id: str):
                 record_price_history("gold", "gold", price_per_gram_24k, "EGP")
 
             elif inv.asset_type == "stocks" and inv.ticker_symbol:
-                if inv.ticker_symbol.upper().endswith(".CA"):
-                    continue  # EGX (Egyptian Exchange) — no reliable free API; user updates manually
+                # EGX (.CA) tickers are also handled by Yahoo Finance
                 price_egp, _ = get_stock_price_egp(inv.ticker_symbol)
                 current_price = price_egp
                 units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else (inv.amount_invested / current_price if current_price and current_price > 0 else 0)

@@ -349,15 +349,9 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
-                    {form.is_egyptian ? (
-                      <p className="text-xs text-amber-400">Egyptian Exchange (EGX) stocks don&apos;t have live pricing — enter your total amount invested below and use the Edit button to update the value manually.</p>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle size={12} className="text-amber-400 shrink-0" />
-                        <p className="text-xs text-amber-400">Ticker not found — check the symbol and try again</p>
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2 bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 py-2.5">
+                    <AlertTriangle size={12} className="text-rose-400 shrink-0" />
+                    <p className="text-xs text-rose-400">Ticker not found — check the symbol and try again{form.is_egyptian ? ". Make sure the stock is listed on EGX." : ""}</p>
                   </div>
                 )
               )}
@@ -541,7 +535,7 @@ function MarketOverview({ investments }: { investments: any[] }) {
   const items = (() => {
     const seen = new Set<string>();
     return investments.filter(inv => {
-      const key = inv.ticker_symbol || inv.coin_id || inv.forex_pair || (inv.asset_type === "gold" ? "gold" : null);
+      const key = inv.ticker_symbol || inv.coin_id || inv.forex_pair || (inv.asset_type === "gold" ? `gold-${inv.karat || 24}` : null);
       if (!key || seen.has(key) || inv.current_price == null) return false;
       seen.add(key);
       return true;
@@ -553,7 +547,7 @@ function MarketOverview({ investments }: { investments: any[] }) {
   return (
     <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">
       <h2 className="text-base font-semibold mb-4">Market Prices</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin" style={{ scrollbarWidth: "thin" }}>
         {items.map(inv => {
           const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
           const history: { price: number }[] = inv.price_history || [];
@@ -570,7 +564,7 @@ function MarketOverview({ investments }: { investments: any[] }) {
             ? "price · EGP"
             : "per share · EGP";
           return (
-            <div key={inv.id} className="bg-white/[0.03] border border-white/[0.04] rounded-xl p-3">
+            <div key={inv.id} className="bg-white/[0.03] border border-white/[0.04] rounded-xl p-3 min-w-[160px] flex-shrink-0">
               <div className="flex items-center gap-2 mb-2">
                 <AssetIcon type={inv.asset_type} size={13} />
                 <span className="text-xs font-semibold text-white truncate">{label}</span>
@@ -581,8 +575,8 @@ function MarketOverview({ investments }: { investments: any[] }) {
               <p className="text-[10px] text-gray-600 mt-0.5 mb-2">{sublabel}</p>
               <div className="flex items-center justify-between">
                 {change != null ? (
-                  <span className={`text-[10px] font-medium ${change >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {change >= 0 ? "+" : ""}{change.toFixed(2)}% 7d
+                  <span className={`text-[10px] font-medium ${change > 0 ? "text-emerald-400" : change < 0 ? "text-rose-400" : "text-gray-400"}`}>
+                    {change > 0 ? "+" : ""}{change.toFixed(2)}% 7d
                   </span>
                 ) : <span className="text-[10px] text-gray-700">—</span>}
                 <Sparkline data={history} color={color} />
@@ -715,8 +709,8 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
         </div>
         <div className="flex items-center gap-1.5">
           {gainPct != null && (
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${gainPct >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
-              {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(1)}%
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${gainPct > 0 ? "bg-emerald-500/10 text-emerald-400" : gainPct < 0 ? "bg-rose-500/10 text-rose-400" : "bg-white/5 text-gray-400"}`}>
+              {gainPct > 0 ? "+" : ""}{gainPct.toFixed(1)}%
             </span>
           )}
           <button onClick={() => onEdit(inv)} className="text-gray-700 hover:text-violet-400 transition p-0.5">
@@ -740,8 +734,8 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
           <span className="text-xs text-gray-600 font-normal ml-1">{inv.currency}</span>
         </p>
         {gain != null && (
-          <p className={`text-xs mt-0.5 tabular-nums ${gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {gain >= 0 ? "+" : ""}{gain.toLocaleString()} {inv.currency}
+          <p className={`text-xs mt-0.5 tabular-nums ${gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}`}>
+            {gain > 0 ? "+" : ""}{gain.toLocaleString()} {inv.currency}
           </p>
         )}
       </div>
@@ -944,11 +938,11 @@ export default function InvestmentsPage() {
                 value={currentValue != null ? `${currentValue.toLocaleString()} EGP` : "—"}
                 sub={currentValue == null ? "No live prices yet" : undefined} />
               <StatCard label="Total Gain"
-                value={totalGain != null ? `${totalGain >= 0 ? "+" : ""}${totalGain.toLocaleString()} EGP` : "—"}
-                positive={totalGain != null ? totalGain >= 0 : null} />
+                value={totalGain != null ? `${totalGain > 0 ? "+" : ""}${totalGain.toLocaleString()} EGP` : "—"}
+                positive={totalGain != null ? (totalGain > 0 ? true : totalGain < 0 ? false : null) : null} />
               <StatCard label="Return %"
-                value={gainPct != null ? `${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(1)}%` : "—"}
-                positive={gainPct != null ? gainPct >= 0 : null} />
+                value={gainPct != null ? `${gainPct > 0 ? "+" : ""}${gainPct.toFixed(1)}%` : "—"}
+                positive={gainPct != null ? (gainPct > 0 ? true : gainPct < 0 ? false : null) : null} />
             </div>
 
             {/* Market Overview — always shown if any live prices exist */}
@@ -1077,18 +1071,16 @@ export default function InvestmentsPage() {
                                     {inv.current_value.toLocaleString()}
                                     <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
                                   </span>
-                                ) : inv.ticker_symbol?.endsWith(".CA") ? (
-                                  <span className="text-[10px] text-amber-600 bg-amber-500/8 px-1.5 py-0.5 rounded">Manual</span>
                                 ) : (
                                   <span className="text-gray-600 text-xs">—</span>
                                 )}
                               </td>
                               <td className="py-3 px-2 text-right font-medium">
                                 {gain != null ? (
-                                  <div className={gain >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                                    <span>{gain >= 0 ? "+" : ""}{gain.toLocaleString()}</span>
+                                  <div className={gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}>
+                                    <span>{gain > 0 ? "+" : ""}{gain.toLocaleString()}</span>
                                     {gainPctRow != null && (
-                                      <span className="text-xs opacity-70 ml-1">({gainPctRow >= 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>
+                                      <span className="text-xs opacity-70 ml-1">({gainPctRow > 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>
                                     )}
                                   </div>
                                 ) : <span className="text-gray-600 text-xs">—</span>}
@@ -1164,18 +1156,13 @@ export default function InvestmentsPage() {
                                       <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
                                     </p>
                                   </div>
-                                ) : inv.ticker_symbol?.endsWith(".CA") ? (
-                                  <div>
-                                    <p className="text-[10px] text-gray-600 uppercase">Value</p>
-                                    <span className="text-[10px] text-amber-600 bg-amber-500/8 px-1.5 py-0.5 rounded">Manual</span>
-                                  </div>
                                 ) : null}
                                 {gain != null && (
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Gain</p>
-                                    <p className={`text-sm font-medium ${gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                                      {gain >= 0 ? "+" : ""}{gain.toLocaleString()}
-                                      {gainPctRow != null && <span className="text-xs ml-1">({gainPctRow >= 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>}
+                                    <p className={`text-sm font-medium ${gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}`}>
+                                      {gain > 0 ? "+" : ""}{gain.toLocaleString()}
+                                      {gainPctRow != null && <span className="text-xs ml-1">({gainPctRow > 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>}
                                     </p>
                                   </div>
                                 )}
