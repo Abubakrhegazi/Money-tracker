@@ -27,7 +27,8 @@ _forex_cache: dict[str, tuple[float, float]] = {}  # symbol -> (rate, timestamp)
 
 def get_egp_rate(from_currency: str) -> float:
     """Return how many EGP 1 unit of from_currency is worth.
-    Uses frankfurter.app (free, no key required)."""
+    Primary: open.er-api.com (free, supports EGP)
+    Fallback: frankfurter.app (free, but does NOT support EGP)"""
     from_currency = from_currency.upper()
     if from_currency == "EGP":
         return 1.0
@@ -35,6 +36,24 @@ def get_egp_rate(from_currency: str) -> float:
     cached = _forex_cache.get(from_currency)
     if cached and (time.time() - cached[1]) < 3600:  # 1h cache
         return cached[0]
+
+    # Primary: open.er-api.com (supports EGP)
+    try:
+        resp = requests.get(
+            f"https://open.er-api.com/v6/latest/{from_currency}",
+            timeout=10
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("result") == "success" and "EGP" in data.get("rates", {}):
+            rate = float(data["rates"]["EGP"])
+            _forex_cache[from_currency] = (rate, time.time())
+            logger.info(f"Forex (er-api): 1 {from_currency} = {rate:.4f} EGP")
+            return rate
+    except Exception as e:
+        logger.warning(f"open.er-api.com failed for {from_currency}: {e}")
+
+    # Fallback: frankfurter.app
     try:
         resp = requests.get(
             f"https://api.frankfurter.app/latest?from={from_currency}&to=EGP",
@@ -43,10 +62,10 @@ def get_egp_rate(from_currency: str) -> float:
         resp.raise_for_status()
         rate = float(resp.json()["rates"]["EGP"])
         _forex_cache[from_currency] = (rate, time.time())
-        logger.info(f"Forex: 1 {from_currency} = {rate:.4f} EGP")
+        logger.info(f"Forex (frankfurter): 1 {from_currency} = {rate:.4f} EGP")
         return rate
     except Exception as e:
-        logger.warning(f"Forex fetch failed for {from_currency}: {e}")
+        logger.warning(f"frankfurter.app also failed for {from_currency}: {e}")
         raise
 
 
@@ -73,8 +92,12 @@ def get_gold_price_per_gram_egp() -> float:
             resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            price_per_oz_usd = float(data["price"])
-            price_per_gram_usd = price_per_oz_usd / _TROY_OZ_TO_GRAM
+            # Use the API's built-in price_gram_24k (USD per gram)
+            price_per_gram_usd = float(data.get("price_gram_24k", 0))
+            if price_per_gram_usd <= 0:
+                # Fallback: compute from troy oz price
+                price_per_oz_usd = float(data["price"])
+                price_per_gram_usd = price_per_oz_usd / _TROY_OZ_TO_GRAM
             usd_egp = get_egp_rate("USD")
             price_per_gram_egp = price_per_gram_usd * usd_egp
             logger.info(f"Gold: {price_per_gram_egp:.2f} EGP/gram (via goldapi.io)")
