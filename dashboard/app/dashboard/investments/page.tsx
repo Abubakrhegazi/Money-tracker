@@ -1,18 +1,18 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api, getToken, removeToken } from "@/lib/api";
 import Image from "next/image";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, YAxis,
 } from "recharts";
 import {
-  LogOut, TrendingUp, TrendingDown, LayoutDashboard, Receipt,
-  Target, Settings, ChevronDown, Trash2, Plus, X, Check,
-  AlertTriangle, RefreshCw, TrendingUp as InvestIcon,
+  LogOut, TrendingUp, Receipt, Target, Settings, ChevronDown,
+  Trash2, Plus, X, Check, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-/* ── Asset type config ────────────────────────────────────── */
+/* ── Asset type config ─────────────────────────────────────── */
 const ASSET_COLORS: Record<string, string> = {
   stocks: "#6366f1",
   crypto: "#f97316",
@@ -27,14 +27,33 @@ const ASSET_LABEL: Record<string, string> = {
   stocks: "Stocks", crypto: "Crypto", gold: "Gold", real_estate: "Real Estate", other: "Other",
 };
 
-/* ── Helpers ──────────────────────────────────────────────── */
-function fmt(n: number | null | undefined, currency = "EGP") {
-  if (n == null) return "—";
-  return `${n.toLocaleString()} ${currency}`;
+/* ── Helpers ───────────────────────────────────────────────── */
+function timeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
-/* ── Sub-components ───────────────────────────────────────── */
-function StatCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean | null }) {
+/* ── Sparkline ─────────────────────────────────────────────── */
+function Sparkline({ data, color }: { data: { price: number }[]; color: string }) {
+  if (!data || data.length < 2) return <span className="text-gray-700 text-xs">—</span>;
+  return (
+    <ResponsiveContainer width={72} height={28}>
+      <LineChart data={data}>
+        <YAxis domain={["auto", "auto"]} hide />
+        <Line type="monotone" dataKey="price" stroke={color} dot={false} strokeWidth={1.5} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* ── Sub-components ────────────────────────────────────────── */
+function StatCard({ label, value, sub, positive }: {
+  label: string; value: string; sub?: string; positive?: boolean | null;
+}) {
   return (
     <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-5">
       <p className="text-[10px] md:text-xs text-gray-500 uppercase tracking-wider mb-2">{label}</p>
@@ -46,43 +65,27 @@ function StatCard({ label, value, sub, positive }: { label: string; value: strin
   );
 }
 
-function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active?: boolean; onClick?: () => void }) {
+function NavItem({ icon, label, active, onClick }: {
+  icon: React.ReactNode; label: string; active?: boolean; onClick?: () => void;
+}) {
   return (
-    <button
-      onClick={onClick}
+    <button onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${
         active ? "bg-violet-500/10 text-violet-400" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
       }`}>
-      {icon}
-      <span>{label}</span>
+      {icon}<span>{label}</span>
     </button>
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 flex items-center justify-center mb-4">
-        <InvestIcon size={36} className="text-violet-400" />
-      </div>
-      <h3 className="text-lg font-semibold text-gray-300 mb-1">No investments yet</h3>
-      <p className="text-gray-600 text-sm max-w-xs">
-        Tell the bot: <em>&ldquo;invested 10000 in Bitcoin&rdquo;</em> or add one below.
-      </p>
-    </div>
-  );
-}
-
-/* ── Add Investment Modal ─────────────────────────────────── */
+/* ── Add Investment Modal ──────────────────────────────────── */
 function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
-    asset_name: "",
-    asset_type: "stocks",
-    amount_invested: "",
-    current_value: "",
-    currency: "EGP",
-    notes: "",
+    asset_name: "", asset_type: "stocks",
+    amount_invested: "", current_value: "",
+    currency: "EGP", notes: "",
     date: new Date().toISOString().slice(0, 10),
+    grams: "", ticker_symbol: "", coin_id: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -91,8 +94,7 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (!form.asset_name.trim()) { setError("Asset name is required"); return; }
     const amount = parseFloat(form.amount_invested);
     if (isNaN(amount) || amount <= 0) { setError("Enter a valid amount"); return; }
-    setSaving(true);
-    setError("");
+    setSaving(true); setError("");
     try {
       await api.createInvestment({
         asset_name: form.asset_name.trim(),
@@ -102,34 +104,33 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
         currency: form.currency,
         notes: form.notes || undefined,
         date: form.date,
+        grams: form.grams ? parseFloat(form.grams) : undefined,
+        ticker_symbol: form.ticker_symbol || undefined,
+        coin_id: form.coin_id || undefined,
       });
       onSaved();
-    } catch (e: any) {
-      setError(e.message || "Failed to save");
-    }
+    } catch (e: any) { setError(e.message || "Failed to save"); }
     setSaving(false);
   };
 
-  const inputClass = "bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50 transition w-full";
+  const inp = "bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50 transition w-full";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="bg-[#12121a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div className="bg-[#12121a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-base font-semibold text-white">Add Investment</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition"><X size={18} /></button>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X size={18} /></button>
         </div>
-
         <div className="space-y-3">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Asset Name *</label>
-            <input className={inputClass} placeholder="e.g. Tesla, Bitcoin, Gold" value={form.asset_name}
+            <input className={inp} placeholder="e.g. Tesla, Bitcoin, Gold" value={form.asset_name}
               onChange={e => setForm(f => ({ ...f, asset_name: e.target.value }))} />
           </div>
-
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Asset Type *</label>
-            <select className={inputClass} value={form.asset_type}
+            <select className={inp} value={form.asset_type}
               onChange={e => setForm(f => ({ ...f, asset_type: e.target.value }))}>
               <option value="stocks">📈 Stocks</option>
               <option value="crypto">₿ Crypto</option>
@@ -138,24 +139,44 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
               <option value="other">💼 Other</option>
             </select>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Amount Invested *</label>
-              <input className={inputClass} type="number" placeholder="10000" value={form.amount_invested}
+              <input className={inp} type="number" placeholder="10000" value={form.amount_invested}
                 onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Current Value</label>
-              <input className={inputClass} type="number" placeholder="optional" value={form.current_value}
+              <input className={inp} type="number" placeholder="optional" value={form.current_value}
                 onChange={e => setForm(f => ({ ...f, current_value: e.target.value }))} />
             </div>
           </div>
-
+          {/* Type-specific fields */}
+          {form.asset_type === "gold" && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Grams</label>
+              <input className={inp} type="number" placeholder="e.g. 10" value={form.grams}
+                onChange={e => setForm(f => ({ ...f, grams: e.target.value }))} />
+            </div>
+          )}
+          {form.asset_type === "stocks" && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Ticker Symbol</label>
+              <input className={inp} placeholder="e.g. TSLA, AAPL" value={form.ticker_symbol}
+                onChange={e => setForm(f => ({ ...f, ticker_symbol: e.target.value.toUpperCase() }))} />
+            </div>
+          )}
+          {form.asset_type === "crypto" && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Coin ID</label>
+              <input className={inp} placeholder="e.g. bitcoin, ethereum" value={form.coin_id}
+                onChange={e => setForm(f => ({ ...f, coin_id: e.target.value.toLowerCase() }))} />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Currency</label>
-              <select className={inputClass} value={form.currency}
+              <select className={inp} value={form.currency}
                 onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
                 <option value="EGP">EGP</option>
                 <option value="USD">USD</option>
@@ -165,28 +186,23 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Date</label>
-              <input className={inputClass} type="date" value={form.date}
+              <input className={inp} type="date" value={form.date}
                 onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
             </div>
           </div>
-
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Notes</label>
-            <input className={inputClass} placeholder="optional" value={form.notes}
+            <input className={inp} placeholder="optional" value={form.notes}
               onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
-
           {error && <p className="text-rose-400 text-xs">{error}</p>}
-
           <div className="flex gap-2 pt-1">
             <button onClick={save} disabled={saving}
               className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition">
               {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={14} />}
               Save Investment
             </button>
-            <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-gray-300 text-sm transition">
-              Cancel
-            </button>
+            <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-gray-300 text-sm transition">Cancel</button>
           </div>
         </div>
       </div>
@@ -194,7 +210,7 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
   );
 }
 
-/* ── Main Page ────────────────────────────────────────────── */
+/* ── Main Page ─────────────────────────────────────────────── */
 export default function InvestmentsPage() {
   const router = useRouter();
   const [data, setData] = useState<{ summary: any; investments: any[] } | null>(null);
@@ -202,42 +218,43 @@ export default function InvestmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const loadData = () => {
+  const loadData = useCallback(() => {
     if (!getToken()) { router.push("/"); return; }
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     api.getInvestments()
-      .then(setData)
+      .then(d => { setData(d); setLastRefresh(new Date()); })
       .catch(e => setError(e.message || "Failed to load"))
       .finally(() => setLoading(false));
-  };
+  }, [router]);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handlePriceRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await (api as any).refreshInvestments();
+      await api.getInvestments().then(d => { setData(d); setLastRefresh(new Date()); });
+    } catch {
+      // silently fail — prices unavailable
+    }
+    setRefreshing(false);
+  };
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     try {
       await api.deleteInvestment(id);
-      setData(prev => prev ? {
-        ...prev,
-        investments: prev.investments.filter(i => i.id !== id),
-      } : prev);
-      // refresh summary
       api.getInvestments().then(setData).catch(() => {});
     } catch { /* handled */ }
     setDeletingId(null);
   };
 
-  const navItems = [
-    { section: "dashboard", icon: <LayoutDashboard size={18} />, label: "Dashboard", href: "/dashboard" },
-    { section: "investments", icon: <TrendingUp size={18} />, label: "Investments", href: "/dashboard/investments" },
-    { section: "settings", icon: <Settings size={18} />, label: "Settings", href: "/dashboard/settings" },
-  ];
-
   if (loading) return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white flex items-center justify-center">
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
     </div>
   );
@@ -254,7 +271,7 @@ export default function InvestmentsPage() {
     </div>
   );
 
-  const investments = data?.investments || [];
+  const investments: any[] = data?.investments || [];
   const summary = data?.summary || {};
   const totalInvested: number = summary.total_invested || 0;
   const currentValue: number | null = summary.current_value ?? null;
@@ -264,6 +281,13 @@ export default function InvestmentsPage() {
   const pieData = Object.entries(summary.breakdown || {}).map(([name, value]) => ({
     name, value: value as number,
   }));
+
+  // Most recent last_price_update across all investments
+  const latestUpdate = investments.reduce((acc: string | null, i) => {
+    if (!i.last_price_update) return acc;
+    if (!acc) return i.last_price_update;
+    return i.last_price_update > acc ? i.last_price_update : acc;
+  }, null);
 
   return (
     <div className="flex flex-col min-h-screen bg-[#0a0a0f] text-white">
@@ -278,11 +302,11 @@ export default function InvestmentsPage() {
             </div>
           </div>
           <nav className="flex flex-col gap-1 flex-1">
-            <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" onClick={() => router.push("/dashboard")} />
+            <NavItem icon={<TrendingUp size={18} />} label="Dashboard" onClick={() => router.push("/dashboard")} />
             <NavItem icon={<Receipt size={18} />} label="Transactions" onClick={() => router.push("/dashboard")} />
             <NavItem icon={<Target size={18} />} label="Budgets" onClick={() => router.push("/dashboard")} />
             <NavItem icon={<TrendingUp size={18} />} label="Analytics" onClick={() => router.push("/dashboard")} />
-            <NavItem icon={<InvestIcon size={18} />} label="Investments" active onClick={() => {}} />
+            <NavItem icon={<TrendingUp size={18} />} label="Investments" active />
           </nav>
           <div className="border-t border-white/5 pt-4">
             <NavItem icon={<Settings size={18} />} label="Settings" onClick={() => router.push("/dashboard/settings")} />
@@ -293,14 +317,22 @@ export default function InvestmentsPage() {
           {/* Header */}
           <header className="sticky top-0 z-10 backdrop-blur-xl bg-[#0a0a0f]/80 border-b border-white/5 px-4 md:px-6 py-4 flex justify-between items-center">
             <div>
-              <h2 className="text-lg font-semibold text-white">Investments</h2>
-              <p className="text-xs text-gray-500">Portfolio overview</p>
+              <h2 className="text-lg font-semibold">Investments</h2>
+              {latestUpdate && (
+                <p className="text-xs text-gray-600">
+                  Last updated: {timeAgo(latestUpdate)}
+                </p>
+              )}
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
-              >
+            <div className="flex items-center gap-2">
+              <button onClick={handlePriceRefresh} disabled={refreshing}
+                title="Refresh live prices"
+                className="flex items-center gap-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-gray-400 hover:text-white px-3 py-1.5 rounded-xl text-xs transition">
+                <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+                {refreshing ? "Refreshing…" : "Refresh prices"}
+              </button>
+              <button onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition">
                 <Plus size={14} /> Add
               </button>
               <div className="relative">
@@ -324,27 +356,23 @@ export default function InvestmentsPage() {
           <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
             {/* Summary Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-              <StatCard label="Total Invested" value={fmt(totalInvested)} />
-              <StatCard
-                label="Current Value"
-                value={currentValue != null ? fmt(currentValue) : "—"}
-                sub={currentValue == null ? "No valuations yet" : undefined}
-              />
-              <StatCard
-                label="Total Gain"
+              <StatCard label="Total Invested" value={totalInvested > 0 ? `${totalInvested.toLocaleString()} EGP` : "—"} />
+              <StatCard label="Current Value"
+                value={currentValue != null ? `${currentValue.toLocaleString()} EGP` : "—"}
+                sub={currentValue == null ? "No live prices yet" : undefined} />
+              <StatCard label="Total Gain"
                 value={totalGain != null ? `${totalGain >= 0 ? "+" : ""}${totalGain.toLocaleString()} EGP` : "—"}
-                positive={totalGain != null ? totalGain >= 0 : null}
-              />
-              <StatCard
-                label="Return %"
+                positive={totalGain != null ? totalGain >= 0 : null} />
+              <StatCard label="Return %"
                 value={gainPct != null ? `${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(1)}%` : "—"}
-                positive={gainPct != null ? gainPct >= 0 : null}
-              />
+                positive={gainPct != null ? gainPct >= 0 : null} />
             </div>
 
             {investments.length === 0 ? (
-              <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl">
-                <EmptyState />
+              <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-16 text-center">
+                <p className="text-4xl mb-3">📊</p>
+                <h3 className="text-gray-300 font-semibold mb-1">No investments yet</h3>
+                <p className="text-gray-600 text-sm">Tell the bot: <em>&ldquo;invested 10000 in Bitcoin&rdquo;</em> or add one with the button above.</p>
               </div>
             ) : (
               <>
@@ -352,7 +380,7 @@ export default function InvestmentsPage() {
                 {pieData.length > 0 && (
                   <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">
                     <h2 className="text-base font-semibold mb-4">Allocation by Type</h2>
-                    <ResponsiveContainer width="100%" height={280}>
+                    <ResponsiveContainer width="100%" height={260}>
                       <PieChart>
                         <Pie data={pieData} dataKey="value" nameKey="name"
                           cx="50%" cy="45%" outerRadius={90} innerRadius={55} stroke="none">
@@ -367,9 +395,7 @@ export default function InvestmentsPage() {
                         />
                         <Legend verticalAlign="bottom"
                           formatter={(value: string) => (
-                            <span className="text-xs text-gray-400">
-                              {ASSET_EMOJI[value] || "💼"} {ASSET_LABEL[value] || value}
-                            </span>
+                            <span className="text-xs text-gray-400">{ASSET_EMOJI[value] || "💼"} {ASSET_LABEL[value] || value}</span>
                           )}
                         />
                       </PieChart>
@@ -377,12 +403,12 @@ export default function InvestmentsPage() {
                   </div>
                 )}
 
-                {/* Investments Table */}
+                {/* Holdings Table */}
                 <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">
                   <h2 className="text-base font-semibold mb-4">Holdings</h2>
 
                   {/* Desktop */}
-                  <div className="hidden sm:block overflow-x-auto">
+                  <div className="hidden lg:block overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-white/5">
@@ -391,7 +417,8 @@ export default function InvestmentsPage() {
                           <th className="text-right py-3 px-2 font-medium">Invested</th>
                           <th className="text-right py-3 px-2 font-medium">Current Value</th>
                           <th className="text-right py-3 px-2 font-medium">Gain / Loss</th>
-                          <th className="text-left py-3 px-2 font-medium">Date</th>
+                          <th className="text-center py-3 px-2 font-medium">7d Trend</th>
+                          <th className="text-left py-3 px-2 font-medium">Updated</th>
                           <th className="w-10" />
                         </tr>
                       </thead>
@@ -399,6 +426,8 @@ export default function InvestmentsPage() {
                         {investments.map((inv) => {
                           const gain = inv.current_value != null ? inv.current_value - inv.amount_invested : null;
                           const gainPctRow = gain != null && inv.amount_invested > 0 ? (gain / inv.amount_invested) * 100 : null;
+                          const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
+                          const hasPrice = inv.current_value != null;
                           return (
                             <tr key={inv.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition group">
                               <td className="py-3 px-2">
@@ -406,35 +435,52 @@ export default function InvestmentsPage() {
                                   <span className="text-lg">{ASSET_EMOJI[inv.asset_type] || "💼"}</span>
                                   <div>
                                     <p className="font-medium text-gray-200">{inv.asset_name}</p>
-                                    {inv.notes && <p className="text-gray-600 text-xs truncate max-w-[140px]">{inv.notes}</p>}
+                                    <p className="text-gray-600 text-xs">
+                                      {inv.ticker_symbol && <span className="mr-1">{inv.ticker_symbol}</span>}
+                                      {inv.grams && <span>{inv.grams}g</span>}
+                                      {inv.notes && !inv.ticker_symbol && !inv.grams && <span className="truncate max-w-[120px] inline-block">{inv.notes}</span>}
+                                    </p>
                                   </div>
                                 </div>
                               </td>
                               <td className="py-3 px-2">
                                 <span className="text-xs px-2 py-0.5 rounded-md"
-                                  style={{ backgroundColor: `${ASSET_COLORS[inv.asset_type]}22`, color: ASSET_COLORS[inv.asset_type] }}>
+                                  style={{ backgroundColor: `${color}22`, color }}>
                                   {ASSET_LABEL[inv.asset_type] || inv.asset_type}
                                 </span>
                               </td>
                               <td className="py-3 px-2 text-right text-gray-300">
-                                {inv.amount_invested.toLocaleString()} <span className="text-gray-600 text-xs">{inv.currency}</span>
+                                {inv.amount_invested.toLocaleString()}
+                                <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
                               </td>
-                              <td className="py-3 px-2 text-right text-gray-300">
-                                {inv.current_value != null ? (
-                                  <>{inv.current_value.toLocaleString()} <span className="text-gray-600 text-xs">{inv.currency}</span></>
-                                ) : <span className="text-gray-600">—</span>}
+                              <td className="py-3 px-2 text-right">
+                                {hasPrice ? (
+                                  <span className="text-gray-200">
+                                    {inv.current_value.toLocaleString()}
+                                    <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-600 text-xs">Price unavailable</span>
+                                )}
                               </td>
                               <td className="py-3 px-2 text-right font-medium">
                                 {gain != null ? (
-                                  <span className={gain >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                                    {gain >= 0 ? "+" : ""}{gain.toLocaleString()}
+                                  <div className={gain >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                                    <span>{gain >= 0 ? "+" : ""}{gain.toLocaleString()}</span>
                                     {gainPctRow != null && (
-                                      <span className="text-xs ml-1 opacity-70">({gainPctRow >= 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>
+                                      <span className="text-xs opacity-70 ml-1">({gainPctRow >= 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>
                                     )}
-                                  </span>
-                                ) : <span className="text-gray-600">—</span>}
+                                  </div>
+                                ) : <span className="text-gray-600 text-xs">—</span>}
                               </td>
-                              <td className="py-3 px-2 text-gray-500 text-xs">{inv.date}</td>
+                              <td className="py-3 px-2">
+                                <div className="flex justify-center">
+                                  <Sparkline data={inv.price_history || []} color={color} />
+                                </div>
+                              </td>
+                              <td className="py-3 px-2 text-gray-600 text-xs">
+                                {inv.last_price_update ? timeAgo(inv.last_price_update) : "—"}
+                              </td>
                               <td className="py-3 px-2">
                                 <button onClick={() => handleDelete(inv.id)} disabled={deletingId === inv.id}
                                   className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-rose-400 transition disabled:opacity-30">
@@ -450,29 +496,58 @@ export default function InvestmentsPage() {
                     </table>
                   </div>
 
-                  {/* Mobile */}
-                  <div className="sm:hidden space-y-2">
+                  {/* Mobile cards */}
+                  <div className="lg:hidden space-y-2">
                     {investments.map((inv) => {
                       const gain = inv.current_value != null ? inv.current_value - inv.amount_invested : null;
+                      const gainPctRow = gain != null && inv.amount_invested > 0 ? (gain / inv.amount_invested) * 100 : null;
+                      const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
                       return (
-                        <div key={inv.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.03]">
-                          <span className="text-2xl">{ASSET_EMOJI[inv.asset_type] || "💼"}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-200 text-sm truncate">{inv.asset_name}</p>
-                            <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]} · {inv.date}</p>
+                        <div key={inv.id} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.03]">
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl mt-0.5">{ASSET_EMOJI[inv.asset_type] || "💼"}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className="font-medium text-gray-200 text-sm">{inv.asset_name}</p>
+                                  <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]} · {inv.date}</p>
+                                </div>
+                                <button onClick={() => handleDelete(inv.id)} disabled={deletingId === inv.id}
+                                  className="text-gray-700 hover:text-rose-400 transition ml-2 mt-0.5">
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                              <div className="flex gap-4 mt-2">
+                                <div>
+                                  <p className="text-[10px] text-gray-600 uppercase">Invested</p>
+                                  <p className="text-sm font-medium text-white">{inv.amount_invested.toLocaleString()}</p>
+                                </div>
+                                {inv.current_value != null && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-600 uppercase">Value</p>
+                                    <p className="text-sm font-medium text-white">{inv.current_value.toLocaleString()}</p>
+                                  </div>
+                                )}
+                                {gain != null && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-600 uppercase">Gain</p>
+                                    <p className={`text-sm font-medium ${gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                      {gain >= 0 ? "+" : ""}{gain.toLocaleString()}
+                                      {gainPctRow != null && <span className="text-xs ml-1">({gainPctRow >= 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                              {(inv.price_history || []).length >= 2 && (
+                                <div className="mt-2">
+                                  <Sparkline data={inv.price_history} color={color} />
+                                </div>
+                              )}
+                              {inv.last_price_update && (
+                                <p className="text-[10px] text-gray-700 mt-1">Updated {timeAgo(inv.last_price_update)}</p>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-white text-sm font-semibold">{inv.amount_invested.toLocaleString()}</p>
-                            {gain != null && (
-                              <p className={`text-xs ${gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                                {gain >= 0 ? "+" : ""}{gain.toLocaleString()}
-                              </p>
-                            )}
-                          </div>
-                          <button onClick={() => handleDelete(inv.id)} disabled={deletingId === inv.id}
-                            className="text-gray-700 hover:text-rose-400 transition ml-1">
-                            <Trash2 size={14} />
-                          </button>
                         </div>
                       );
                     })}
@@ -485,25 +560,21 @@ export default function InvestmentsPage() {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0d0d14]/95 backdrop-blur-xl border-t border-white/5 flex justify-around py-2 px-1">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0d0d14]/95 backdrop-blur-xl border-t border-white/5 flex justify-around py-2 px-1">
         {[
-          { icon: <LayoutDashboard size={18} />, label: "Dashboard", href: "/dashboard" },
-          { icon: <InvestIcon size={18} />, label: "Investments", href: "/dashboard/investments", active: true },
-          { icon: <Settings size={18} />, label: "Settings", href: "/dashboard/settings" },
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Investments", href: "/dashboard/investments", active: true },
+          { label: "Settings", href: "/dashboard/settings" },
         ].map(n => (
           <button key={n.label} onClick={() => router.push(n.href)}
             className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] transition ${n.active ? "text-violet-400" : "text-gray-500"}`}>
-            {n.icon}
-            <span>{n.label}</span>
+            <TrendingUp size={18} /><span>{n.label}</span>
           </button>
         ))}
       </nav>
 
       {showModal && (
-        <AddInvestmentModal
-          onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); loadData(); }}
-        />
+        <AddInvestmentModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); loadData(); }} />
       )}
     </div>
   );

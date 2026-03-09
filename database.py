@@ -138,6 +138,28 @@ class Investment(Base):
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Live price tracking fields
+    grams = Column(Float, nullable=True)              # gold: quantity in grams
+    ticker_symbol = Column(String(20), nullable=True) # stocks: e.g. TSLA
+    coin_id = Column(String(50), nullable=True)       # crypto: e.g. bitcoin
+    price_per_unit = Column(Float, nullable=True)     # price per unit at purchase
+    current_price = Column(Float, nullable=True)      # latest fetched price
+    last_price_update = Column(DateTime, nullable=True)
+
+
+class InvestmentPriceHistory(Base):
+    __tablename__ = "investment_price_history"
+    __table_args__ = (
+        Index("ix_price_hist_identifier", "identifier"),
+        Index("ix_price_hist_recorded", "recorded_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    asset_type = Column(String(50), nullable=False)
+    identifier = Column(String(100), nullable=False)  # ticker, coin_id, or 'gold'
+    price = Column(Float, nullable=False)
+    currency = Column(String(10), default="EGP")
+    recorded_at = Column(DateTime, default=datetime.utcnow)
 
 
 class NotificationSettings(Base):
@@ -179,12 +201,22 @@ def init_db():
                 logger.info("[MIGRATION] Adding is_deleted column to expenses")
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE expenses ADD COLUMN is_deleted BOOLEAN DEFAULT false"))
-        # Add investments table migration (add updated_at if missing)
+        # Add investments table migration
         if insp.has_table("investments"):
             inv_cols = [c["name"] for c in insp.get_columns("investments")]
-            if "updated_at" not in inv_cols:
-                with engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE investments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            new_inv_cols = {
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "grams": "FLOAT",
+                "ticker_symbol": "VARCHAR(20)",
+                "coin_id": "VARCHAR(50)",
+                "price_per_unit": "FLOAT",
+                "current_price": "FLOAT",
+                "last_price_update": "TIMESTAMP",
+            }
+            with engine.begin() as conn:
+                for col, col_type in new_inv_cols.items():
+                    if col not in inv_cols:
+                        conn.execute(text(f"ALTER TABLE investments ADD COLUMN {col} {col_type}"))
         # Normalize legacy categories to fixed list
         VALID_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "other",
                       "salary", "freelance", "gift", "refund", "investment", "other_income"}
@@ -1043,6 +1075,10 @@ def save_investment(user_id: str, data: dict) -> str:
             currency=data.get("currency", "EGP"),
             notes=data.get("notes"),
             date=data.get("date", datetime.utcnow().strftime("%Y-%m-%d")),
+            grams=data.get("grams"),
+            ticker_symbol=data.get("ticker_symbol"),
+            coin_id=data.get("coin_id"),
+            price_per_unit=data.get("price_per_unit"),
         )
         session.add(inv)
         session.commit()
@@ -1126,6 +1162,70 @@ def get_investment_summary(user_id: str) -> dict:
         "gain_percentage": gain_pct,
         "breakdown": breakdown,
     }
+
+
+def record_price_history(asset_type: str, identifier: str, price: float, currency: str = "EGP"):
+    """Store a price snapshot in history."""
+    session = Session()
+    try:
+        session.add(InvestmentPriceHistory(
+            id=str(uuid.uuid4()),
+            asset_type=asset_type,
+            identifier=identifier,
+            price=price,
+            currency=currency,
+        ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.warning(f"record_price_history failed: {e}")
+    finally:
+        session.close()
+
+
+def get_price_history(identifier: str, limit: int = 7) -> list:
+    """Return last N price snapshots for an identifier, oldest first."""
+    session = Session()
+    try:
+        rows = session.query(InvestmentPriceHistory).filter_by(
+            identifier=identifier
+        ).order_by(InvestmentPriceHistory.recorded_at.desc()).limit(limit).all()
+        rows.reverse()
+        return [{"price": r.price, "recorded_at": r.recorded_at.isoformat()} for r in rows]
+    finally:
+        session.close()
+
+
+def update_investment_price(investment_id: str, current_price: float, current_value: float):
+    """Update current_price and current_value for an investment after a live fetch."""
+    session = Session()
+    try:
+        inv = session.query(Investment).filter_by(id=investment_id).filter(Investment.is_deleted != True).first()
+        if inv:
+            inv.current_price = current_price
+            inv.current_value = current_value
+            inv.last_price_update = datetime.utcnow()
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.warning(f"update_investment_price failed: {e}")
+    finally:
+        session.close()
+
+
+def get_all_trackable_investments() -> list:
+    """Return all non-deleted investments that have price tracking identifiers."""
+    session = Session()
+    try:
+        rows = session.query(Investment).filter(
+            Investment.is_deleted != True,
+            (Investment.ticker_symbol.isnot(None)) |
+            (Investment.coin_id.isnot(None)) |
+            (Investment.asset_type == "gold")
+        ).all()
+        return rows
+    finally:
+        session.close()
 
 
 def delete_user_data(user_id: str) -> bool:

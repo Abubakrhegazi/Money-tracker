@@ -128,4 +128,5 @@ export const api = {
   updateInvestment: (id: string, body: { current_value?: number; notes?: string }) =>
     fetchWithAuthPatch(`/investments/${id}`, body),
   deleteInvestment: (id: string) => fetchWithAuthDelete(`/investments/${id}`),
+  refreshInvestments: () => fetchWithAuthPost("/investments/refresh", {}),
 };

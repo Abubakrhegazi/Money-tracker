@@ -102,17 +102,26 @@ Return ONLY this JSON:
   "entry_type": "investment",
   "asset_name": <specific name like "Tesla", "Bitcoin", "Gold" — never null>,
   "asset_type": <one of: stocks|crypto|gold|real_estate|other>,
-  "amount": <number — the amount invested, never null>,
+  "amount": <number — the EGP/cash amount invested, or null if only quantity given>,
+  "quantity": <number — grams for gold, units for crypto, shares for stocks, or null if not mentioned>,
+  "ticker_symbol": <stock ticker like "TSLA", "AAPL", or null>,
+  "coin_id": <coin name like "bitcoin", "ethereum", "solana", or null>,
   "currency": <"EGP" if not mentioned>,
   "date": <"today" if not mentioned>
 }
 
 asset_type mapping:
-- stocks: shares, stock, سهم, بورصة
-- crypto: bitcoin, ethereum, crypto, BTC, ETH, عمله رقمية
-- gold: gold, ذهب
+- stocks: shares, stock, سهم, بورصة — set ticker_symbol if mentioned
+- crypto: bitcoin, ethereum, BTC, ETH, عمله رقمية — set coin_id to lowercase coin name
+- gold: gold, ذهب — quantity is grams
 - real_estate: property, apartment, عقار, شقه
 - other: anything else
+
+Examples:
+"bought 10 grams of gold" → asset_type=gold, quantity=10, amount=null, ticker_symbol=null, coin_id=null
+"invested 5000 in Tesla" → asset_type=stocks, amount=5000, ticker_symbol=TSLA, coin_id=null
+"bought 0.1 bitcoin" → asset_type=crypto, quantity=0.1, amount=null, coin_id=bitcoin
+"invested 50000 in bitcoin" → asset_type=crypto, amount=50000, coin_id=bitcoin
 
 Arabic numbers: الف=1000, الفين=2000, مية=100.
 If NOT a clear investment message, return {"error": "not_an_investment"}"""
@@ -123,10 +132,13 @@ If NOT a clear investment message, return {"error": "not_an_investment"}"""
     )
     result = json.loads(response.choices[0].message.content)
     if "error" not in result:
-        if not result.get("amount") or result["amount"] <= 0:
-            return {"error": "no_amount"}
         if not result.get("currency"):
             result["currency"] = "EGP"
+        # Must have either amount or quantity
+        has_amount = result.get("amount") and result["amount"] > 0
+        has_quantity = result.get("quantity") and result["quantity"] > 0
+        if not has_amount and not has_quantity:
+            return {"error": "no_amount"}
     return result
 
 
@@ -207,24 +219,92 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             inv_date = investment.get("date", "today")
             if inv_date == "today":
                 inv_date = _date.today().isoformat()
+
+            asset_type = investment.get("asset_type", "other")
+            asset_name = investment["asset_name"]
+            quantity = investment.get("quantity")
+            amount = investment.get("amount")
+            ticker = investment.get("ticker_symbol")
+            coin_id = investment.get("coin_id")
+            currency = investment.get("currency", "EGP")
+
+            # Attempt live price fetch to fill in amount or enrich data
+            price_per_unit = None
+            live_price_note = ""
+            try:
+                from price_fetcher import (
+                    get_gold_price_per_gram_egp, get_stock_price_egp,
+                    get_crypto_price_egp, normalize_coin_id
+                )
+                if asset_type == "gold" and quantity:
+                    price_per_unit = get_gold_price_per_gram_egp()
+                    amount = quantity * price_per_unit
+                    live_price_note = f"_{price_per_unit:,.0f} EGP/gram_"
+                elif asset_type == "stocks" and ticker and not amount:
+                    price_egp, _ = get_stock_price_egp(ticker)
+                    price_per_unit = price_egp
+                    if quantity:
+                        amount = quantity * price_egp
+                    live_price_note = f"_{price_egp:,.2f} EGP/share_"
+                elif asset_type == "stocks" and ticker and amount:
+                    price_egp, _ = get_stock_price_egp(ticker)
+                    price_per_unit = price_egp
+                    live_price_note = f"_{price_egp:,.2f} EGP/share_"
+                elif asset_type == "crypto" and coin_id:
+                    norm_id = normalize_coin_id(coin_id)
+                    price_egp = get_crypto_price_egp(norm_id)
+                    price_per_unit = price_egp
+                    if quantity and not amount:
+                        amount = quantity * price_egp
+                    live_price_note = f"_{price_egp:,.2f} EGP/{coin_id}_"
+            except Exception as e:
+                logger.warning(f"Live price fetch failed during bot parse: {e}")
+
+            if not amount or amount <= 0:
+                await update.message.reply_text(
+                    f"⚠️ Couldn't determine investment amount. Please specify a value, e.g.:\n"
+                    f"_\"invested 5000 EGP in {asset_name}\"_",
+                    parse_mode="Markdown"
+                )
+                return
+
             save_investment(user_id, {
-                "asset_name": investment["asset_name"],
-                "asset_type": investment.get("asset_type", "other"),
-                "amount_invested": investment["amount"],
-                "currency": investment.get("currency", "EGP"),
+                "asset_name": asset_name,
+                "asset_type": asset_type,
+                "amount_invested": amount,
+                "currency": currency,
                 "date": inv_date,
+                "grams": quantity if asset_type == "gold" else None,
+                "ticker_symbol": ticker,
+                "coin_id": normalize_coin_id(coin_id) if coin_id else None,
+                "price_per_unit": price_per_unit,
             })
+
             type_labels = {"stocks": "📈 Stocks", "crypto": "₿ Crypto", "gold": "🥇 Gold", "real_estate": "🏠 Real Estate", "other": "💼 Other"}
-            asset_type_label = type_labels.get(investment.get("asset_type", "other"), "💼 Other")
-            await update.message.reply_text(
-                f"💹 *Investment Logged!*\n\n"
-                f"📦 Asset: *{investment['asset_name']}*\n"
-                f"🏷 Type: {asset_type_label}\n"
-                f"💰 Amount: *{investment['amount']:,.0f} {investment.get('currency', 'EGP')}*\n"
-                f"📅 Date: {inv_date}\n\n"
-                f"_Use /investments to see your portfolio._",
-                parse_mode="Markdown"
-            )
+            asset_type_label = type_labels.get(asset_type, "💼 Other")
+
+            # Build confirmation
+            if asset_type == "gold" and quantity:
+                confirm = (
+                    f"💹 *Investment Logged!*\n\n"
+                    f"🥇 *{quantity:g}g Gold*\n"
+                    f"💰 Value: *{amount:,.0f} EGP*\n"
+                    f"{live_price_note}\n"
+                    f"📅 Date: {inv_date}"
+                )
+            else:
+                confirm = (
+                    f"💹 *Investment Logged!*\n\n"
+                    f"📦 Asset: *{asset_name}*\n"
+                    f"🏷 Type: {asset_type_label}\n"
+                    f"💰 Amount: *{amount:,.0f} {currency}*\n"
+                )
+                if live_price_note:
+                    confirm += f"{live_price_note}\n"
+                confirm += f"📅 Date: {inv_date}"
+
+            confirm += "\n\n_Use /investments to see your portfolio._"
+            await update.message.reply_text(confirm, parse_mode="Markdown")
             return
 
     expense = await extract_expense(transcript)
@@ -830,6 +910,19 @@ def main():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Price refresh every 6 hours
+    try:
+        from price_fetcher import refresh_all_investment_prices
+        scheduler.add_job(
+            refresh_all_investment_prices,
+            "interval", hours=6,
+            id="investment_price_refresh",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        logger.info("Investment price refresh job scheduled (every 6h)")
+    except Exception as e:
+        logger.warning(f"Could not schedule price refresh: {e}")
     scheduler.start()
     logger.info("APScheduler started (notifications hourly, backup at 3am Cairo)")
 

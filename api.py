@@ -20,7 +20,7 @@ from database import (
     init_db, set_budget, get_budget, delete_expense, delete_budget,
     get_notification_settings, update_notification_settings, delete_user_data, engine,
     save_investment, get_investments, update_investment_value, delete_investment,
-    get_investment_summary, get_primary_id,
+    get_investment_summary, get_primary_id, get_price_history,
 )
 from sqlalchemy import extract, text
 from backup import run_backup as trigger_backup, get_last_backup_time
@@ -459,6 +459,10 @@ class InvestmentBody(BaseModel):
     currency: str = "EGP"
     notes: str | None = None
     date: str | None = None
+    grams: float | None = None
+    ticker_symbol: str | None = None
+    coin_id: str | None = None
+    price_per_unit: float | None = None
 
 class UpdateInvestmentBody(BaseModel):
     current_value: float | None = None
@@ -470,23 +474,31 @@ async def get_user_investments(request: Request, user=Depends(get_current_user))
     user_id = get_primary_id(user["sub"])
     investments = get_investments(user_id)
     summary = get_investment_summary(user_id)
-    return {
-        "summary": summary,
-        "investments": [
-            {
-                "id": i.id,
-                "asset_name": i.asset_name,
-                "asset_type": i.asset_type,
-                "amount_invested": i.amount_invested,
-                "current_value": i.current_value,
-                "currency": i.currency,
-                "notes": i.notes,
-                "date": i.date,
-                "created_at": i.created_at.isoformat() if i.created_at else None,
-            }
-            for i in investments
-        ],
-    }
+
+    inv_list = []
+    for i in investments:
+        identifier = i.coin_id or i.ticker_symbol or ("gold" if i.asset_type == "gold" else None)
+        history = get_price_history(identifier) if identifier else []
+        inv_list.append({
+            "id": i.id,
+            "asset_name": i.asset_name,
+            "asset_type": i.asset_type,
+            "amount_invested": i.amount_invested,
+            "current_value": i.current_value,
+            "currency": i.currency,
+            "notes": i.notes,
+            "date": i.date,
+            "grams": i.grams,
+            "ticker_symbol": i.ticker_symbol,
+            "coin_id": i.coin_id,
+            "price_per_unit": i.price_per_unit,
+            "current_price": i.current_price,
+            "last_price_update": i.last_price_update.isoformat() if i.last_price_update else None,
+            "created_at": i.created_at.isoformat() if i.created_at else None,
+            "price_history": history,
+        })
+
+    return {"summary": summary, "investments": inv_list}
 
 @app.post("/investments")
 @limiter.limit("30/minute")
@@ -505,6 +517,10 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
         "currency": body.currency,
         "notes": body.notes,
         "date": inv_date,
+        "grams": body.grams,
+        "ticker_symbol": body.ticker_symbol,
+        "coin_id": body.coin_id,
+        "price_per_unit": body.price_per_unit,
     })
     return {"id": inv_id, "status": "created"}
 
@@ -527,3 +543,15 @@ async def delete_investment_api(request: Request, investment_id: str, user=Depen
     if not success:
         raise HTTPException(status_code=404, detail="Investment not found")
     return {"id": investment_id, "status": "deleted"}
+
+@app.post("/investments/refresh")
+@limiter.limit("10/minute")
+async def refresh_investment_prices(request: Request, user=Depends(get_current_user)):
+    """Trigger an immediate price refresh for the authenticated user's portfolio."""
+    try:
+        from price_fetcher import refresh_user_investment_prices
+        result = refresh_user_investment_prices(user["sub"])
+        return {"status": "ok", **result}
+    except Exception as e:
+        logger.error(f"Investment price refresh failed: {e}")
+        raise HTTPException(status_code=500, detail="Price refresh failed")
