@@ -132,7 +132,7 @@ export const api = {
     price_per_unit?: number;
     karat?: number;
   }) => fetchWithAuthPost("/investments", body),
-  updateInvestment: (id: string, body: { current_value?: number; notes?: string }) =>
+  updateInvestment: (id: string, body: { current_value?: number; notes?: string; amount_invested?: number }) =>
     fetchWithAuthPatch(`/investments/${id}`, body),
   deleteInvestment: (id: string) => fetchWithAuthDelete(`/investments/${id}`),
   refreshInvestments: () => fetchWithAuthPost("/investments/refresh", {}),

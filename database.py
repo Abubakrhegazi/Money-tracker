@@ -1110,17 +1110,20 @@ def get_investments(user_id: str) -> list:
         session.close()
 
 
-def update_investment_value(user_id: str, investment_id: str, current_value: float, notes: str | None = None) -> bool:
-    """Update current_value (and optionally notes) for an investment. Returns True on success."""
+def update_investment_value(user_id: str, investment_id: str, current_value: float, notes: str | None = None, amount_invested: float | None = None) -> bool:
+    """Update current_value, notes, and/or amount_invested for an investment. Returns True on success."""
     user_id = get_primary_id(user_id)
     session = Session()
     try:
         inv = session.query(Investment).filter_by(id=investment_id, user_id=user_id).filter(Investment.is_deleted != True).first()
         if not inv:
             return False
-        inv.current_value = current_value
+        if current_value is not None:
+            inv.current_value = current_value
         if notes is not None:
             inv.notes = notes
+        if amount_invested is not None:
+            inv.amount_invested = amount_invested
         inv.updated_at = datetime.utcnow()
         session.commit()
         return True

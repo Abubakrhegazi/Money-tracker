@@ -469,6 +469,7 @@ class InvestmentBody(BaseModel):
 class UpdateInvestmentBody(BaseModel):
     current_value: float | None = None
     notes: str | None = None
+    amount_invested: float | None = None
 
 @app.get("/investments/check-ticker")
 @limiter.limit("20/minute")
@@ -569,9 +570,11 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
 async def update_investment(request: Request, investment_id: str, body: UpdateInvestmentBody, user=Depends(get_current_user)):
     if body.current_value is not None and body.current_value < 0:
         raise HTTPException(status_code=400, detail="current_value cannot be negative")
-    if body.current_value is None and body.notes is None:
+    if body.amount_invested is not None and body.amount_invested <= 0:
+        raise HTTPException(status_code=400, detail="amount_invested must be positive")
+    if body.current_value is None and body.notes is None and body.amount_invested is None:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    success = update_investment_value(user["sub"], investment_id, body.current_value, body.notes)
+    success = update_investment_value(user["sub"], investment_id, body.current_value, body.notes, body.amount_invested)
     if not success:
         raise HTTPException(status_code=404, detail="Investment not found")
     return {"id": investment_id, "status": "updated"}
