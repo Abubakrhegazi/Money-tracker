@@ -5,11 +5,11 @@ import { api, getToken, removeToken } from "@/lib/api";
 import Image from "next/image";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-  LineChart, Line, YAxis,
+  LineChart, Line, YAxis, XAxis, AreaChart, Area,
 } from "recharts";
 import {
   LogOut, TrendingUp, Receipt, Target, Settings, ChevronDown,
-  Trash2, Plus, X, Check, AlertTriangle, RefreshCw,
+  Trash2, Plus, X, Check, AlertTriangle, RefreshCw, BarChart2, List,
 } from "lucide-react";
 
 /* ── Asset type config ─────────────────────────────────────── */
@@ -515,6 +515,105 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
   );
 }
 
+/* ── Investment Chart Card ─────────────────────────────────── */
+function InvestmentChartCard({ inv, onDelete, deleting }: {
+  inv: any; onDelete: (id: string) => void; deleting: boolean;
+}) {
+  const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
+  const history: { price: number; recorded_at?: string }[] = inv.price_history || [];
+  const gain = inv.current_value != null && inv.amount_invested > 0
+    ? inv.current_value - inv.amount_invested : null;
+  const gainPct = gain != null && inv.amount_invested > 0
+    ? (gain / inv.amount_invested) * 100 : null;
+
+  const chartData = history.map((h) => ({
+    price: h.price,
+    label: h.recorded_at
+      ? new Date(h.recorded_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "",
+  }));
+
+  const gradId = `cg-${inv.id}`;
+  const subLabel = inv.ticker_symbol || inv.forex_pair
+    || (inv.grams ? `${inv.karat || 24}k · ${inv.grams}g` : ASSET_LABEL[inv.asset_type]);
+
+  return (
+    <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 flex flex-col gap-3">
+      {/* Header row */}
+      <div className="flex justify-between items-start">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">{ASSET_EMOJI[inv.asset_type] || "💼"}</span>
+          <div>
+            <p className="text-sm font-semibold text-white leading-tight">{inv.asset_name}</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">{subLabel}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {gainPct != null && (
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${gainPct >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+              {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(1)}%
+            </span>
+          )}
+          <button onClick={() => onDelete(inv.id)} disabled={deleting}
+            className="text-gray-700 hover:text-rose-400 transition disabled:opacity-30">
+            {deleting
+              ? <div className="w-3.5 h-3.5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin" />
+              : <Trash2 size={13} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Value & gain */}
+      <div>
+        <p className="text-xl font-bold text-white tabular-nums">
+          {inv.current_value != null
+            ? inv.current_value.toLocaleString()
+            : inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : "—"}
+          <span className="text-xs text-gray-600 font-normal ml-1">{inv.currency}</span>
+        </p>
+        {gain != null && (
+          <p className={`text-xs mt-0.5 tabular-nums ${gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            {gain >= 0 ? "+" : ""}{gain.toLocaleString()} {inv.currency}
+          </p>
+        )}
+      </div>
+
+      {/* Chart */}
+      {chartData.length >= 2 ? (
+        <ResponsiveContainer width="100%" height={110}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.25} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#6b7280" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+            <YAxis domain={["auto", "auto"]} hide />
+            <Tooltip
+              contentStyle={{ background: "#1a1a24", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", fontSize: "11px" }}
+              itemStyle={{ color: "#e2e8f0" }}
+              formatter={(v: any) => [`${Number(v).toLocaleString()} EGP`, "Price"]}
+              labelStyle={{ color: "#9ca3af", fontSize: "10px" }}
+            />
+            <Area type="monotone" dataKey="price" stroke={color} fill={`url(#${gradId})`} strokeWidth={2} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-[110px] flex items-center justify-center rounded-xl bg-white/[0.02]">
+          <p className="text-gray-700 text-xs">Not enough data yet — refresh to populate</p>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex justify-between items-center pt-1 border-t border-white/[0.04] text-[10px] text-gray-600">
+        <span>{inv.amount_invested > 0 ? `Cost: ${inv.amount_invested.toLocaleString()} ${inv.currency}` : "No cost basis"}</span>
+        <span>{inv.last_price_update ? timeAgo(inv.last_price_update) : "—"}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Page ─────────────────────────────────────────────── */
 export default function InvestmentsPage() {
   const router = useRouter();
@@ -526,6 +625,7 @@ export default function InvestmentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [viewMode, setViewMode] = useState<"table" | "chart">("table");
 
   const loadData = useCallback(() => {
     if (!getToken()) { router.push("/"); return; }
@@ -717,11 +817,41 @@ export default function InvestmentsPage() {
                   </div>
                 )}
 
-                {/* Holdings Table */}
+                {/* Holdings Table / Chart */}
                 <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">
-                  <h2 className="text-base font-semibold mb-4">Holdings</h2>
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-base font-semibold">Holdings</h2>
+                    {/* View toggle */}
+                    <div className="flex gap-1 bg-white/[0.04] rounded-xl p-1">
+                      <button
+                        onClick={() => setViewMode("table")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "table" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                        <List size={13} /> Table
+                      </button>
+                      <button
+                        onClick={() => setViewMode("chart")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "chart" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                        <BarChart2 size={13} /> Charts
+                      </button>
+                    </div>
+                  </div>
 
-                  {/* Desktop */}
+                  {/* Chart Grid */}
+                  {viewMode === "chart" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {investments.map((inv) => (
+                        <InvestmentChartCard
+                          key={inv.id}
+                          inv={inv}
+                          onDelete={handleDelete}
+                          deleting={deletingId === inv.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Table view (desktop + mobile) */}
+                  {viewMode === "table" && <>
                   <div className="hidden lg:block overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -873,6 +1003,7 @@ export default function InvestmentsPage() {
                       );
                     })}
                   </div>
+                  </>}
                 </div>
               </>
             )}
