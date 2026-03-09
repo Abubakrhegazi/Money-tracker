@@ -57,9 +57,8 @@ function StatCard({ label, value, sub, positive }: {
   return (
     <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-5">
       <p className="text-[10px] md:text-xs text-gray-500 uppercase tracking-wider mb-2">{label}</p>
-      <p className={`text-2xl md:text-3xl font-bold tracking-tight ${
-        positive === true ? "text-emerald-400" : positive === false ? "text-rose-400" : "text-white"
-      }`}>{value}</p>
+      <p className={`text-2xl md:text-3xl font-bold tracking-tight ${positive === true ? "text-emerald-400" : positive === false ? "text-rose-400" : "text-white"
+        }`}>{value}</p>
       {sub && <p className="text-xs text-gray-600 mt-1">{sub}</p>}
     </div>
   );
@@ -70,9 +69,8 @@ function NavItem({ icon, label, active, onClick }: {
 }) {
   return (
     <button onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${
-        active ? "bg-violet-500/10 text-violet-400" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
-      }`}>
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${active ? "bg-violet-500/10 text-violet-400" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+        }`}>
       {icon}<span>{label}</span>
     </button>
   );
@@ -233,6 +231,15 @@ export default function InvestmentsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Auto-refresh prices on page load
+  useEffect(() => {
+    if (!getToken()) return;
+    (api as any).refreshInvestments()
+      .then(() => api.getInvestments())
+      .then((d: any) => { setData(d); setLastRefresh(new Date()); })
+      .catch(() => { /* silently fail */ });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handlePriceRefresh = async () => {
     setRefreshing(true);
     try {
@@ -248,7 +255,7 @@ export default function InvestmentsPage() {
     setDeletingId(id);
     try {
       await api.deleteInvestment(id);
-      api.getInvestments().then(setData).catch(() => {});
+      api.getInvestments().then(setData).catch(() => { });
     } catch { /* handled */ }
     setDeletingId(null);
   };
