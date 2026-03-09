@@ -142,6 +142,7 @@ class Investment(Base):
     grams = Column(Float, nullable=True)              # gold: quantity in grams
     ticker_symbol = Column(String(20), nullable=True) # stocks: e.g. TSLA
     coin_id = Column(String(50), nullable=True)       # crypto: e.g. bitcoin
+    forex_pair = Column(String(10), nullable=True)    # currency: e.g. USD, EUR
     price_per_unit = Column(Float, nullable=True)     # price per unit at purchase
     current_price = Column(Float, nullable=True)      # latest fetched price
     last_price_update = Column(DateTime, nullable=True)
@@ -209,6 +210,7 @@ def init_db():
                 "grams": "FLOAT",
                 "ticker_symbol": "VARCHAR(20)",
                 "coin_id": "VARCHAR(50)",
+                "forex_pair": "VARCHAR(10)",
                 "price_per_unit": "FLOAT",
                 "current_price": "FLOAT",
                 "last_price_update": "TIMESTAMP",
@@ -1078,6 +1080,7 @@ def save_investment(user_id: str, data: dict) -> str:
             grams=data.get("grams"),
             ticker_symbol=data.get("ticker_symbol"),
             coin_id=data.get("coin_id"),
+            forex_pair=data.get("forex_pair"),
             price_per_unit=data.get("price_per_unit"),
         )
         session.add(inv)
@@ -1221,7 +1224,8 @@ def get_all_trackable_investments() -> list:
             Investment.is_deleted != True,
             (Investment.ticker_symbol.isnot(None)) |
             (Investment.coin_id.isnot(None)) |
-            (Investment.asset_type == "gold")
+            (Investment.asset_type == "gold") |
+            (Investment.forex_pair.isnot(None))
         ).all()
         return rows
     finally:

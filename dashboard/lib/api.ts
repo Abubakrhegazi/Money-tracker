@@ -127,6 +127,7 @@ export const api = {
     grams?: number;
     ticker_symbol?: string;
     coin_id?: string;
+    forex_pair?: string;
   }) => fetchWithAuthPost("/investments", body),
   updateInvestment: (id: string, body: { current_value?: number; notes?: string }) =>
     fetchWithAuthPatch(`/investments/${id}`, body),

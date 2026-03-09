@@ -449,7 +449,7 @@ async def whatsapp_login(request: Request, token: str):
 
 # ── Investments ────────────────────────────────────────────────────────
 
-_VALID_ASSET_TYPES = {"stocks", "crypto", "gold", "real_estate", "other"}
+_VALID_ASSET_TYPES = {"stocks", "crypto", "gold", "real_estate", "currency", "other"}
 
 class InvestmentBody(BaseModel):
     asset_name: str
@@ -462,6 +462,7 @@ class InvestmentBody(BaseModel):
     grams: float | None = None
     ticker_symbol: str | None = None
     coin_id: str | None = None
+    forex_pair: str | None = None
     price_per_unit: float | None = None
 
 class UpdateInvestmentBody(BaseModel):
@@ -477,7 +478,7 @@ async def get_user_investments(request: Request, user=Depends(get_current_user))
 
     inv_list = []
     for i in investments:
-        identifier = i.coin_id or i.ticker_symbol or ("gold" if i.asset_type == "gold" else None)
+        identifier = i.coin_id or i.ticker_symbol or ("gold" if i.asset_type == "gold" else None) or i.forex_pair
         history = get_price_history(identifier) if identifier else []
         inv_list.append({
             "id": i.id,
@@ -491,6 +492,7 @@ async def get_user_investments(request: Request, user=Depends(get_current_user))
             "grams": i.grams,
             "ticker_symbol": i.ticker_symbol,
             "coin_id": i.coin_id,
+            "forex_pair": i.forex_pair,
             "price_per_unit": i.price_per_unit,
             "current_price": i.current_price,
             "last_price_update": i.last_price_update.isoformat() if i.last_price_update else None,
@@ -520,6 +522,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
         "grams": body.grams,
         "ticker_symbol": body.ticker_symbol,
         "coin_id": body.coin_id,
+        "forex_pair": body.forex_pair.upper() if body.forex_pair else None,
         "price_per_unit": body.price_per_unit,
     })
     return {"id": inv_id, "status": "created"}

@@ -249,6 +249,13 @@ def refresh_all_investment_prices():
                 current_value = units * price_egp
                 record_price_history("crypto", normalize_coin_id(inv.coin_id), price_egp, "EGP")
 
+            elif inv.asset_type == "currency" and inv.forex_pair:
+                rate = get_egp_rate(inv.forex_pair)
+                current_price = rate
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                current_value = units * rate
+                record_price_history("currency", inv.forex_pair.upper(), rate, "EGP")
+
             if current_price is not None and current_value is not None:
                 update_investment_price(inv.id, current_price, current_value)
                 updated += 1
@@ -293,6 +300,13 @@ def refresh_user_investment_prices(user_id: str):
                 units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
                 current_value = units * price_egp
                 record_price_history("crypto", normalize_coin_id(inv.coin_id), price_egp, "EGP")
+
+            elif inv.asset_type == "currency" and inv.forex_pair:
+                rate = get_egp_rate(inv.forex_pair)
+                current_price = rate
+                units = (inv.amount_invested / inv.price_per_unit) if inv.price_per_unit else 1
+                current_value = units * rate
+                record_price_history("currency", inv.forex_pair.upper(), rate, "EGP")
 
             if current_price is not None and current_value is not None:
                 update_investment_price(inv.id, current_price, current_value)
