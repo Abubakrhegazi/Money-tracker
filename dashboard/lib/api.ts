@@ -116,6 +116,7 @@ export const api = {
       body: JSON.stringify(data),
     }).then((r) => r.json()),
   getInvestments: () => fetchWithAuth("/investments"),
+  checkTicker: (symbol: string) => fetchWithAuth(`/investments/check-ticker?symbol=${encodeURIComponent(symbol)}`),
   createInvestment: (body: {
     asset_name: string;
     asset_type: string;

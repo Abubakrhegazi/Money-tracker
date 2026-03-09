@@ -132,23 +132,50 @@ function CustomDropdown({ value, onChange, options }: {
   );
 }
 
+/* ── Toggle Switch ─────────────────────────────────────────── */
+function Toggle({ checked, onCheckedChange, label }: {
+  checked: boolean; onCheckedChange: (v: boolean) => void; label: string;
+}) {
+  return (
+    <button type="button" onClick={() => onCheckedChange(!checked)}
+      className="flex items-center gap-2.5 select-none group">
+      <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${checked ? "bg-violet-600" : "bg-white/10"}`}>
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${checked ? "translate-x-4" : ""}`} />
+      </div>
+      <span className="text-xs text-gray-400 group-hover:text-gray-300 transition">{label}</span>
+    </button>
+  );
+}
+
 /* ── Add Investment Modal ──────────────────────────────────── */
 function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
-    asset_name: "", asset_type: "stocks",
-    amount_invested: "", current_value: "",
-    currency: "EGP", notes: "",
+    asset_name: "", asset_type: "stocks", currency: "EGP", notes: "",
     date: new Date().toISOString().slice(0, 10),
-    grams: "", karat: "21", ticker_symbol: "", coin_id: "",
+    ticker_symbol: "", is_egyptian: false, shares: "", buy_price_per_share: "",
+    grams: "", karat: "21", amount_paid_gold: "",
+    coin_id: "", amount_invested: "",
     forex_pair: "", buy_rate: "",
+    manual_amount: "",
   });
+  const [tickerInfo, setTickerInfo] = useState<{ valid: boolean; symbol: string; price_egp: number } | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const isCurrency = form.asset_type === "currency";
+  const isStocks = form.asset_type === "stocks";
   const isGold = form.asset_type === "gold";
+  const isCrypto = form.asset_type === "crypto";
+  const isCurrency = form.asset_type === "currency";
 
-  // Computed: how many foreign currency units the user holds
+  const effectiveTicker = isStocks && form.ticker_symbol
+    ? (form.is_egyptian && !form.ticker_symbol.includes(".") ? form.ticker_symbol + ".CA" : form.ticker_symbol)
+    : "";
+
+  const sharesNum = parseFloat(form.shares);
+  const buyPriceNum = parseFloat(form.buy_price_per_share) || tickerInfo?.price_egp || 0;
+  const stockCost = !isNaN(sharesNum) && sharesNum > 0 && buyPriceNum > 0 ? sharesNum * buyPriceNum : null;
+
   const unitsHeld = (() => {
     if (!isCurrency) return null;
     const amt = parseFloat(form.amount_invested);
@@ -157,172 +184,331 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     return null;
   })();
 
+  const verifyTicker = async () => {
+    if (!effectiveTicker) return;
+    setVerifying(true); setTickerInfo(null);
+    try {
+      const result = await api.checkTicker(effectiveTicker);
+      setTickerInfo(result);
+      if (result.valid && !form.asset_name) setForm(f => ({ ...f, asset_name: result.symbol }));
+    } catch {
+      setTickerInfo({ valid: false, symbol: effectiveTicker, price_egp: 0 });
+    }
+    setVerifying(false);
+  };
+
   const save = async () => {
     if (!form.asset_name.trim()) { setError("Asset name is required"); return; }
-    if (isCurrency && !form.forex_pair.trim()) { setError("Currency you hold is required (e.g. USD)"); return; }
-    if (isCurrency && !form.buy_rate.trim()) { setError("Rate you bought at is required"); return; }
-    const amount = parseFloat(form.amount_invested);
-    if (isNaN(amount) || amount <= 0) { setError("Enter a valid amount"); return; }
-    if (isCurrency) {
+    let amount_invested = 0;
+    let price_per_unit: number | undefined;
+    let grams: number | undefined;
+    let karat: number | undefined;
+
+    if (isStocks) {
+      if (tickerInfo?.valid) {
+        const s = parseFloat(form.shares);
+        if (isNaN(s) || s <= 0) { setError("Enter number of shares"); return; }
+        const bp = parseFloat(form.buy_price_per_share) || tickerInfo.price_egp;
+        amount_invested = s * bp;
+        price_per_unit = bp;
+      } else {
+        amount_invested = parseFloat(form.manual_amount);
+        if (isNaN(amount_invested) || amount_invested <= 0) { setError("Enter the amount invested (or verify your ticker to use shares)"); return; }
+      }
+    } else if (isGold) {
+      grams = form.grams ? parseFloat(form.grams) : undefined;
+      if (!grams || grams <= 0) { setError("Enter number of grams"); return; }
+      karat = form.karat ? parseInt(form.karat) : undefined;
+      amount_invested = form.amount_paid_gold ? parseFloat(form.amount_paid_gold) : 0;
+    } else if (isCurrency) {
+      if (!form.forex_pair.trim()) { setError("Enter the currency you hold (e.g. USD)"); return; }
       const rate = parseFloat(form.buy_rate);
-      if (isNaN(rate) || rate <= 0) { setError("Enter a valid buy rate"); return; }
+      if (isNaN(rate) || rate <= 0) { setError("Enter the rate you bought at"); return; }
+      amount_invested = parseFloat(form.amount_invested);
+      if (isNaN(amount_invested) || amount_invested <= 0) { setError("Enter the amount you spent"); return; }
+      price_per_unit = rate;
+    } else {
+      amount_invested = parseFloat(form.amount_invested);
+      if (isNaN(amount_invested) || amount_invested <= 0) { setError("Enter a valid amount"); return; }
     }
+
     setSaving(true); setError("");
     try {
       await api.createInvestment({
         asset_name: form.asset_name.trim(),
         asset_type: form.asset_type,
-        amount_invested: amount,
-        current_value: form.current_value ? parseFloat(form.current_value) : undefined,
+        amount_invested,
         currency: form.currency,
         notes: form.notes || undefined,
         date: form.date,
-        grams: form.grams ? parseFloat(form.grams) : undefined,
-        karat: isGold && form.karat ? parseInt(form.karat) : undefined,
-        ticker_symbol: form.ticker_symbol || undefined,
-        coin_id: form.coin_id || undefined,
-        forex_pair: form.forex_pair.toUpperCase() || undefined,
-        price_per_unit: form.buy_rate ? parseFloat(form.buy_rate) : undefined,
+        grams,
+        karat,
+        ticker_symbol: isStocks ? (effectiveTicker || undefined) : undefined,
+        coin_id: isCrypto ? (form.coin_id || undefined) : undefined,
+        forex_pair: isCurrency ? (form.forex_pair.toUpperCase() || undefined) : undefined,
+        price_per_unit,
       });
       onSaved();
     } catch (e: any) { setError(e.message || "Failed to save"); }
     setSaving(false);
   };
 
-  const inp = "bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50 transition w-full";
+  const inp = "w-full bg-white/[0.04] border border-white/8 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-700 focus:outline-none focus:ring-1 focus:ring-violet-500/50 focus:border-violet-500/30 transition";
+  const lbl = "text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-1.5 block";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="bg-[#12121a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-base font-semibold text-white">Add Investment</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X size={18} /></button>
-        </div>
-        <div className="space-y-3">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-0 sm:px-4">
+      <div className="bg-[#0f0f18] border border-white/8 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-[440px] shadow-2xl max-h-[92vh] overflow-y-auto">
+
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-[#0f0f18]/95 backdrop-blur-md border-b border-white/5 px-5 py-4 flex justify-between items-center rounded-t-2xl">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Asset Name *</label>
-            <input className={inp} placeholder="e.g. Tesla, Bitcoin, Gold, USD savings" value={form.asset_name}
-              onChange={e => setForm(f => ({ ...f, asset_name: e.target.value }))} />
+            <p className="text-sm font-semibold text-white">Add Investment</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">Track a new asset in your portfolio</p>
           </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5 text-gray-600 hover:text-gray-300 transition">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+
+          {/* Asset Type Grid */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Asset Type *</label>
-            <CustomDropdown value={form.asset_type} onChange={v => setForm(f => ({ ...f, asset_type: v }))} options={ASSET_TYPES} />
+            <p className={lbl}>Asset Type</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {ASSET_TYPES.map(a => (
+                <button key={a.value} type="button"
+                  onClick={() => { setForm(f => ({ ...f, asset_type: a.value })); setTickerInfo(null); }}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-[11px] font-medium transition ${
+                    form.asset_type === a.value
+                      ? "border-violet-500/40 bg-violet-500/10 text-violet-300"
+                      : "border-white/5 bg-white/[0.02] text-gray-600 hover:border-white/10 hover:text-gray-400"
+                  }`}>
+                  <span className="text-xl leading-none">{a.emoji}</span>
+                  <span>{a.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Currency-specific layout */}
-          {isCurrency ? (
-            <>
+          {/* ── STOCKS ──────────────────────────────────── */}
+          {isStocks && (
+            <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">Currency You Hold *</label>
-                <input className={inp} placeholder="e.g. USD, EUR, GBP, SAR" value={form.forex_pair}
-                  onChange={e => setForm(f => ({ ...f, forex_pair: e.target.value.toUpperCase() }))} />
+                <p className={lbl}>Ticker Symbol</p>
+                <div className="flex gap-2">
+                  <input className={`${inp} flex-1`} placeholder="e.g. TSLA, NVDA, COMI"
+                    value={form.ticker_symbol}
+                    onChange={e => { setForm(f => ({ ...f, ticker_symbol: e.target.value.toUpperCase() })); setTickerInfo(null); }} />
+                  <button type="button" onClick={verifyTicker}
+                    disabled={!form.ticker_symbol || verifying}
+                    className="px-3.5 rounded-lg bg-white/5 hover:bg-white/8 border border-white/8 text-xs text-gray-300 disabled:opacity-30 transition flex items-center gap-1.5 shrink-0">
+                    {verifying
+                      ? <div className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                      : <Check size={11} />}
+                    {verifying ? "Checking…" : "Verify"}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between mt-2.5">
+                  <Toggle
+                    checked={form.is_egyptian}
+                    onCheckedChange={v => { setForm(f => ({ ...f, is_egyptian: v })); setTickerInfo(null); }}
+                    label="Egyptian stock (EGX) — appends .CA" />
+                  {effectiveTicker && effectiveTicker !== form.ticker_symbol && (
+                    <span className="text-[10px] text-gray-600 font-mono">{effectiveTicker}</span>
+                  )}
+                </div>
+              </div>
+
+              {tickerInfo && (
+                tickerInfo.valid ? (
+                  <div className="flex items-center gap-3 bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 py-2.5">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0">
+                      <Check size={11} className="text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-emerald-300">{tickerInfo.symbol} — found</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        Current price: <span className="text-gray-300">{tickerInfo.price_egp.toLocaleString(undefined, { maximumFractionDigits: 2 })} EGP / share</span>
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 py-2.5">
+                    <AlertTriangle size={12} className="text-rose-400 shrink-0" />
+                    <p className="text-xs text-rose-400">Ticker not found — check the symbol and try again</p>
+                  </div>
+                )
+              )}
+
+              {tickerInfo?.valid ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className={lbl}>Number of Shares *</p>
+                      <input className={inp} type="number" placeholder="e.g. 10"
+                        value={form.shares} onChange={e => setForm(f => ({ ...f, shares: e.target.value }))} />
+                    </div>
+                    <div>
+                      <p className={lbl}>Buy Price / Share</p>
+                      <input className={inp} type="number"
+                        placeholder={tickerInfo.price_egp.toFixed(2)}
+                        value={form.buy_price_per_share}
+                        onChange={e => setForm(f => ({ ...f, buy_price_per_share: e.target.value }))} />
+                      <p className="text-[10px] text-gray-700 mt-1">Blank = use current price</p>
+                    </div>
+                  </div>
+                  {stockCost != null && (
+                    <div className="bg-violet-500/5 border border-violet-500/15 rounded-xl px-3 py-2.5">
+                      <p className="text-xs font-medium text-violet-300">
+                        {form.shares} shares × {(parseFloat(form.buy_price_per_share) || tickerInfo.price_egp).toLocaleString(undefined, { maximumFractionDigits: 2 })} EGP
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">Total cost ≈ {stockCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} EGP</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <p className={lbl}>Amount Invested *</p>
+                  <input className={inp} type="number" placeholder="e.g. 10,000 EGP"
+                    value={form.manual_amount} onChange={e => setForm(f => ({ ...f, manual_amount: e.target.value }))} />
+                  {!tickerInfo && <p className="text-[10px] text-gray-700 mt-1">Verify ticker above to enter shares count instead</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── GOLD ────────────────────────────────────── */}
+          {isGold && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className={lbl}>Grams *</p>
+                  <input className={inp} type="number" placeholder="e.g. 10"
+                    value={form.grams} onChange={e => setForm(f => ({ ...f, grams: e.target.value }))} />
+                </div>
+                <div>
+                  <p className={lbl}>Karat</p>
+                  <CustomDropdown value={form.karat} onChange={v => setForm(f => ({ ...f, karat: v }))} options={KARATS} />
+                </div>
+              </div>
+              <div>
+                <p className={lbl}>Amount You Paid <span className="text-gray-700 normal-case font-normal">(optional)</span></p>
+                <input className={inp} type="number" placeholder="Leave blank — computed from live gold price"
+                  value={form.amount_paid_gold} onChange={e => setForm(f => ({ ...f, amount_paid_gold: e.target.value }))} />
+              </div>
+              {form.grams && (
+                <div className="flex items-center gap-2.5 bg-yellow-500/5 border border-yellow-500/15 rounded-xl px-3 py-2.5">
+                  <span className="text-base">🥇</span>
+                  <p className="text-[11px] text-gray-400">
+                    {form.grams}g of {form.karat}k gold — current value tracked from live market price
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CRYPTO ──────────────────────────────────── */}
+          {isCrypto && (
+            <div className="space-y-3">
+              <div>
+                <p className={lbl}>Coin</p>
+                <input className={inp} placeholder="e.g. bitcoin, ethereum, solana"
+                  value={form.coin_id} onChange={e => setForm(f => ({ ...f, coin_id: e.target.value.toLowerCase() }))} />
+                <p className="text-[10px] text-gray-700 mt-1">Use the CoinGecko ID (lowercase)</p>
+              </div>
+              <div>
+                <p className={lbl}>Amount Invested *</p>
+                <input className={inp} type="number" placeholder="e.g. 5,000 EGP"
+                  value={form.amount_invested} onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
+              </div>
+            </div>
+          )}
+
+          {/* ── CURRENCY ────────────────────────────────── */}
+          {isCurrency && (
+            <div className="space-y-3">
+              <div>
+                <p className={lbl}>Currency You Hold *</p>
+                <input className={inp} placeholder="e.g. USD, EUR, GBP, SAR"
+                  value={form.forex_pair} onChange={e => setForm(f => ({ ...f, forex_pair: e.target.value.toUpperCase() }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
-                    Amount Spent * <span className="text-gray-600">({form.currency})</span>
-                  </label>
-                  <input className={inp} type="number" placeholder="e.g. 10000" value={form.amount_invested}
-                    onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
+                  <p className={lbl}>Amount Spent * <span className="text-gray-700 normal-case font-normal">({form.currency})</span></p>
+                  <input className={inp} type="number" placeholder="e.g. 10,000"
+                    value={form.amount_invested} onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
-                    Rate You Bought At *
-                  </label>
-                  <input className={inp} type="number" placeholder={`${form.currency}/${form.forex_pair || "USD"}`} value={form.buy_rate}
-                    onChange={e => setForm(f => ({ ...f, buy_rate: e.target.value }))} />
+                  <p className={lbl}>Rate Bought At *</p>
+                  <input className={inp} type="number"
+                    placeholder={`${form.currency}/${form.forex_pair || "USD"}`}
+                    value={form.buy_rate} onChange={e => setForm(f => ({ ...f, buy_rate: e.target.value }))} />
                 </div>
               </div>
               {unitsHeld && (
-                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl px-3 py-2.5 flex items-center gap-2">
-                  <span className="text-lg">💱</span>
+                <div className="flex items-center gap-2.5 bg-cyan-500/5 border border-cyan-500/15 rounded-xl px-3 py-2.5">
+                  <span className="text-base">💱</span>
                   <div>
-                    <p className="text-xs text-cyan-300 font-medium">You hold ≈ {unitsHeld} {form.forex_pair || "units"}</p>
-                    <p className="text-[10px] text-gray-500">Live rate will be fetched to track current value</p>
+                    <p className="text-xs font-medium text-cyan-300">You hold ≈ {unitsHeld} {form.forex_pair || "units"}</p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">Live rate tracked automatically</p>
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Your Currency</label>
-                  <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Date</label>
-                  <input className={inp} type="date" value={form.date}
-                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Amount Invested *</label>
-                  <input className={inp} type="number" placeholder="10000" value={form.amount_invested}
-                    onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Current Value</label>
-                  <input className={inp} type="number" placeholder="optional" value={form.current_value}
-                    onChange={e => setForm(f => ({ ...f, current_value: e.target.value }))} />
-                </div>
-              </div>
-              {isGold && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Grams *</label>
-                    <input className={inp} type="number" placeholder="e.g. 10" value={form.grams}
-                      onChange={e => setForm(f => ({ ...f, grams: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Karat</label>
-                    <CustomDropdown value={form.karat} onChange={v => setForm(f => ({ ...f, karat: v }))} options={KARATS} />
-                  </div>
-                </div>
-              )}
-              {form.asset_type === "stocks" && (
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Ticker Symbol</label>
-                  <input className={inp} placeholder="e.g. TSLA, AAPL" value={form.ticker_symbol}
-                    onChange={e => setForm(f => ({ ...f, ticker_symbol: e.target.value.toUpperCase() }))} />
-                  <p className="text-[10px] text-gray-600 mt-1">For Egyptian stocks, use TICKER.CA (e.g. COMI.CA for CIB)</p>
-                </div>
-              )}
-              {form.asset_type === "crypto" && (
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Coin ID</label>
-                  <input className={inp} placeholder="e.g. bitcoin, ethereum" value={form.coin_id}
-                    onChange={e => setForm(f => ({ ...f, coin_id: e.target.value.toLowerCase() }))} />
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Your Currency</label>
-                  <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Date</label>
-                  <input className={inp} type="date" value={form.date}
-                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-                </div>
-              </div>
-            </>
+            </div>
           )}
 
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Notes</label>
-            <input className={inp} placeholder="optional" value={form.notes}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          {/* ── REAL ESTATE / OTHER ─────────────────────── */}
+          {(form.asset_type === "real_estate" || form.asset_type === "other") && (
+            <div>
+              <p className={lbl}>Amount Invested *</p>
+              <input className={inp} type="number" placeholder="e.g. 1,500,000 EGP"
+                value={form.amount_invested} onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
+            </div>
+          )}
+
+          {/* ── COMMON FIELDS ───────────────────────────── */}
+          <div className="border-t border-white/5 pt-4 space-y-3">
+            <div>
+              <p className={lbl}>Name *</p>
+              <input className={inp}
+                placeholder={isStocks ? "e.g. CIB, Tesla" : isGold ? "e.g. 21k Bracelet" : isCrypto ? "e.g. Bitcoin" : isCurrency ? "e.g. USD Savings" : "Asset name"}
+                value={form.asset_name} onChange={e => setForm(f => ({ ...f, asset_name: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className={lbl}>Currency</p>
+                <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
+              </div>
+              <div>
+                <p className={lbl}>Date</p>
+                <input className={inp} type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <p className={lbl}>Notes</p>
+              <input className={inp} placeholder="optional" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
           </div>
-          {error && <p className="text-rose-400 text-xs">{error}</p>}
-          <div className="flex gap-2 pt-1">
+
+          {error && (
+            <div className="flex items-center gap-2 bg-rose-500/5 border border-rose-500/15 rounded-lg px-3 py-2.5">
+              <AlertTriangle size={12} className="text-rose-400 shrink-0" />
+              <p className="text-xs text-rose-400">{error}</p>
+            </div>
+          )}
+
+          <div className="flex gap-2">
             <button onClick={save} disabled={saving}
-              className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition">
+              className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition">
               {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={14} />}
               Save Investment
             </button>
-            <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-gray-300 text-sm transition">Cancel</button>
+            <button onClick={onClose}
+              className="px-4 py-2.5 rounded-xl border border-white/8 text-gray-500 hover:text-gray-300 hover:bg-white/5 text-sm transition">
+              Cancel
+            </button>
           </div>
         </div>
       </div>

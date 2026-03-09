@@ -470,6 +470,20 @@ class UpdateInvestmentBody(BaseModel):
     current_value: float | None = None
     notes: str | None = None
 
+@app.get("/investments/check-ticker")
+@limiter.limit("20/minute")
+async def check_ticker(request: Request, symbol: str, user=Depends(get_current_user)):
+    """Validate a stock ticker and return its current price in EGP."""
+    from price_fetcher import get_stock_price_egp
+    symbol = symbol.strip().upper()
+    if not symbol or len(symbol) > 15:
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+    try:
+        price_egp, _ = get_stock_price_egp(symbol)
+        return {"valid": True, "symbol": symbol, "price_egp": round(price_egp, 4)}
+    except Exception:
+        return {"valid": False, "symbol": symbol, "price_egp": 0}
+
 @app.get("/investments")
 @limiter.limit("60/minute")
 async def get_user_investments(request: Request, user=Depends(get_current_user)):
@@ -522,7 +536,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
         "notes": body.notes,
         "date": inv_date,
         "grams": body.grams,
-        "ticker_symbol": body.ticker_symbol,
+        "ticker_symbol": body.ticker_symbol.upper() if body.ticker_symbol else None,
         "coin_id": body.coin_id,
         "forex_pair": body.forex_pair.upper() if body.forex_pair else None,
         "karat": body.karat,
