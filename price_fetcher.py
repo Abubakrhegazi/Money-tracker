@@ -166,12 +166,14 @@ def get_gold_price_per_gram_egp() -> float:
 
 def get_stock_price_egp(ticker: str) -> tuple[float, float]:
     """Return (price_in_egp, price_in_usd) for a stock ticker.
-    Uses Yahoo Finance chart API directly — no extra package required."""
+    Uses Yahoo Finance chart API directly — no extra package required.
+    Uses last close from chart data (not meta.regularMarketPrice which
+    can be very stale for EGX/emerging-market stocks)."""
     ticker = ticker.upper()
     try:
         resp = requests.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
-            params={"interval": "1d", "range": "1d"},
+            params={"interval": "1d", "range": "5d"},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10,
         )
@@ -181,10 +183,23 @@ def get_stock_price_egp(ticker: str) -> tuple[float, float]:
         if not result:
             raise ValueError(f"No data returned for ticker '{ticker}'")
         meta = result[0]["meta"]
-        price = float(meta["regularMarketPrice"])
         currency = meta.get("currency", "USD").upper()
+
+        # Prefer the last non-null close from chart data (more accurate
+        # than meta.regularMarketPrice which can be very stale for EGX)
+        closes = result[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        price = None
+        for c in reversed(closes):
+            if c is not None:
+                price = float(c)
+                break
+        # Fall back to meta price if no chart closes available
+        if price is None or price <= 0:
+            price = float(meta["regularMarketPrice"])
+
         # Convert to EGP
         if currency == "EGP":
+            logger.info(f"Stock {ticker}: {price:.2f} EGP (chart close)")
             return price, price
         egp_rate = get_egp_rate(currency)
         price_egp = price * egp_rate
