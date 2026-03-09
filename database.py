@@ -1,5 +1,6 @@
 import os
 import logging
+import uuid
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -117,6 +118,28 @@ class AdminSession(Base):
     last_active = Column(DateTime, default=datetime.utcnow)
     revoked = Column(Boolean, default=False)
 
+class Investment(Base):
+    __tablename__ = "investments"
+    __table_args__ = (
+        Index("ix_investments_user_id", "user_id"),
+        Index("ix_investments_date", "date"),
+        Index("ix_investments_asset_type", "asset_type"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False)
+    asset_name = Column(String, nullable=False)
+    asset_type = Column(String, nullable=False)  # stocks/crypto/gold/real_estate/other
+    amount_invested = Column(Float, nullable=False)
+    current_value = Column(Float, nullable=True)
+    currency = Column(String, default="EGP")
+    notes = Column(Text, nullable=True)
+    date = Column(String, nullable=False)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class NotificationSettings(Base):
     __tablename__ = "notification_settings"
     id = Column(Integer, primary_key=True)
@@ -156,6 +179,12 @@ def init_db():
                 logger.info("[MIGRATION] Adding is_deleted column to expenses")
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE expenses ADD COLUMN is_deleted BOOLEAN DEFAULT false"))
+        # Add investments table migration (add updated_at if missing)
+        if insp.has_table("investments"):
+            inv_cols = [c["name"] for c in insp.get_columns("investments")]
+            if "updated_at" not in inv_cols:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE investments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
         # Normalize legacy categories to fixed list
         VALID_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "other",
                       "salary", "freelance", "gift", "refund", "investment", "other_income"}
@@ -999,6 +1028,106 @@ def is_new_user(user_id: str) -> bool:
         session.close()
 
 
+def save_investment(user_id: str, data: dict) -> str:
+    """Save a new investment record. Returns the new investment ID."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        inv = Investment(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            asset_name=data["asset_name"],
+            asset_type=data.get("asset_type", "other"),
+            amount_invested=data["amount_invested"],
+            current_value=data.get("current_value"),
+            currency=data.get("currency", "EGP"),
+            notes=data.get("notes"),
+            date=data.get("date", datetime.utcnow().strftime("%Y-%m-%d")),
+        )
+        session.add(inv)
+        session.commit()
+        return inv.id
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_investments(user_id: str) -> list:
+    """Return all active investments for a user."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        rows = session.query(Investment).filter(
+            Investment.user_id == user_id,
+            Investment.is_deleted != True
+        ).order_by(Investment.created_at.desc()).all()
+        return rows
+    finally:
+        session.close()
+
+
+def update_investment_value(user_id: str, investment_id: str, current_value: float, notes: str | None = None) -> bool:
+    """Update current_value (and optionally notes) for an investment. Returns True on success."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        inv = session.query(Investment).filter_by(id=investment_id, user_id=user_id).filter(Investment.is_deleted != True).first()
+        if not inv:
+            return False
+        inv.current_value = current_value
+        if notes is not None:
+            inv.notes = notes
+        inv.updated_at = datetime.utcnow()
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def delete_investment(user_id: str, investment_id: str) -> bool:
+    """Soft-delete an investment. Returns True on success."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        inv = session.query(Investment).filter_by(id=investment_id, user_id=user_id).filter(Investment.is_deleted != True).first()
+        if not inv:
+            return False
+        inv.is_deleted = True
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_investment_summary(user_id: str) -> dict:
+    """Return summary stats for a user's investments."""
+    user_id = get_primary_id(user_id)
+    investments = get_investments(user_id)
+    total_invested = sum(i.amount_invested for i in investments)
+    total_current = sum(i.current_value for i in investments if i.current_value is not None)
+    has_current = any(i.current_value is not None for i in investments)
+    total_gain = (total_current - total_invested) if has_current else None
+    gain_pct = (total_gain / total_invested * 100) if (has_current and total_invested > 0) else None
+    breakdown: dict[str, float] = {}
+    for inv in investments:
+        breakdown[inv.asset_type] = breakdown.get(inv.asset_type, 0) + inv.amount_invested
+    return {
+        "total_invested": total_invested,
+        "current_value": total_current if has_current else None,
+        "total_gain": total_gain,
+        "gain_percentage": gain_pct,
+        "breakdown": breakdown,
+    }
+
+
 def delete_user_data(user_id: str) -> bool:
     """Permanently delete ALL user data (GDPR). Irreversible."""
     user_id = get_primary_id(user_id)
@@ -1006,6 +1135,7 @@ def delete_user_data(user_id: str) -> bool:
     try:
         session.query(Expense).filter_by(telegram_user_id=user_id).delete()
         session.query(Budget).filter_by(telegram_user_id=user_id).delete()
+        session.query(Investment).filter_by(user_id=user_id).delete()
         session.query(NotificationSettings).filter_by(telegram_user_id=user_id).delete()
         session.query(UserLink).filter(
             (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)

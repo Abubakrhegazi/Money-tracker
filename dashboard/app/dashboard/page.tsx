@@ -11,7 +11,7 @@ import {
   LogOut, TrendingUp, TrendingDown, Receipt, Wallet, Target,
   Check, X, LayoutDashboard, Search, ChevronDown,
   ArrowUpRight, ArrowDownRight, Minus, Settings, Trash2,
-  Menu, XCircle, AlertTriangle, RefreshCw, Pencil,
+  Menu, XCircle, AlertTriangle, RefreshCw, Pencil, LineChart,
 } from "lucide-react";
 
 /* ── Color System ─────────────────────────────────────────── */
@@ -122,6 +122,7 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [trend, setTrend] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<Record<string, number>>({});
+  const [investmentSummary, setInvestmentSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBudgetCat, setEditingBudgetCat] = useState<string | null>(null);
@@ -141,9 +142,10 @@ export default function DashboardPage() {
     if (!getToken()) { router.push("/"); return; }
     setLoading(true);
     setError(null);
-    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget()])
-      .then(([s, h, t, b]) => {
+    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget(), api.getInvestments().catch(() => null)])
+      .then(([s, h, t, b, inv]) => {
         setSummary(s); setHistory(h); setTrend(t); setBudgets(b || {});
+        if (inv) setInvestmentSummary(inv.summary);
       })
       .catch((err) => {
         setError(err.message || "Failed to load dashboard data");
@@ -264,6 +266,7 @@ export default function DashboardPage() {
   }));
 
   const scrollTo = (id: string, section: string) => {
+    if (section === "investments") { router.push("/dashboard/investments"); return; }
     setActiveSection(section);
     setMobileMenuOpen(false);
     if (id === "top") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -275,6 +278,7 @@ export default function DashboardPage() {
     { id: "section-transactions", section: "transactions", icon: <Receipt size={18} />, label: "Transactions" },
     { id: "section-budget", section: "budgets", icon: <Target size={18} />, label: "Budgets" },
     { id: "section-analytics", section: "analytics", icon: <TrendingUp size={18} />, label: "Analytics" },
+    { id: "investments", section: "investments", icon: <LineChart size={18} />, label: "Investments" },
   ];
 
   return (
@@ -377,6 +381,45 @@ export default function DashboardPage() {
                 suffix=" EGP" neutral
               />
             </div>
+
+            {/* ── Investments Summary Card ────────────────── */}
+            {investmentSummary && investmentSummary.total_invested > 0 && (
+              <div
+                className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-5 cursor-pointer hover:border-violet-500/20 transition group"
+                onClick={() => router.push("/dashboard/investments")}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 mb-3">
+                    <LineChart size={16} className="text-violet-400" />
+                    <h3 className="text-sm font-semibold text-gray-300">Investments</h3>
+                  </div>
+                  <ArrowUpRight size={14} className="text-gray-600 group-hover:text-violet-400 transition" />
+                </div>
+                <div className="flex gap-6 flex-wrap">
+                  <div>
+                    <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Invested</p>
+                    <p className="text-xl font-bold text-white">{investmentSummary.total_invested.toLocaleString()} <span className="text-sm text-gray-500 font-normal">EGP</span></p>
+                  </div>
+                  {investmentSummary.current_value != null && (
+                    <div>
+                      <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Current Value</p>
+                      <p className="text-xl font-bold text-white">{investmentSummary.current_value.toLocaleString()} <span className="text-sm text-gray-500 font-normal">EGP</span></p>
+                    </div>
+                  )}
+                  {investmentSummary.total_gain != null && (
+                    <div>
+                      <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Gain / Loss</p>
+                      <p className={`text-xl font-bold ${investmentSummary.total_gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {investmentSummary.total_gain >= 0 ? "+" : ""}{investmentSummary.total_gain.toLocaleString()}
+                        {investmentSummary.gain_percentage != null && (
+                          <span className="text-sm font-normal ml-1">({investmentSummary.gain_percentage >= 0 ? "+" : ""}{investmentSummary.gain_percentage.toFixed(1)}%)</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* ── Budget Section ──────────────────────────── */}
             <div id="section-budget" className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">

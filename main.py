@@ -8,7 +8,7 @@ from database import (
     init_db, save_expense, get_monthly_summary, get_recent_expenses,
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
     get_notification_settings, update_notification_settings, delete_user_data,
-    get_link_token,
+    get_link_token, save_investment, get_investments, get_investment_summary,
 )
 from datetime import datetime
 
@@ -73,6 +73,62 @@ def is_greeting(text: str) -> bool:
         if not financial_kw.search(text):
             return True
     return False
+
+_INVESTMENT_KEYWORDS = re.compile(
+    r'\b(invested?|bought\s+stock|crypto|bitcoin|ethereum|gold|استثمرت|شريت\s+(سهم|عمله|ذهب)|put\s+into)\b',
+    re.IGNORECASE
+)
+
+def is_investment(text: str) -> bool:
+    return bool(_INVESTMENT_KEYWORDS.search(text))
+
+_ASSET_TYPE_MAP = {
+    "stock": "stocks", "stocks": "stocks", "share": "stocks", "shares": "stocks",
+    "crypto": "crypto", "bitcoin": "crypto", "ethereum": "crypto", "btc": "crypto", "eth": "crypto",
+    "gold": "gold", "ذهب": "gold",
+    "real estate": "real_estate", "property": "real_estate", "عقار": "real_estate",
+}
+
+async def extract_investment(transcript: str) -> dict:
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": """You are an investment parser. Extract investment details from the message.
+
+Return ONLY this JSON:
+{
+  "entry_type": "investment",
+  "asset_name": <specific name like "Tesla", "Bitcoin", "Gold" — never null>,
+  "asset_type": <one of: stocks|crypto|gold|real_estate|other>,
+  "amount": <number — the amount invested, never null>,
+  "currency": <"EGP" if not mentioned>,
+  "date": <"today" if not mentioned>
+}
+
+asset_type mapping:
+- stocks: shares, stock, سهم, بورصة
+- crypto: bitcoin, ethereum, crypto, BTC, ETH, عمله رقمية
+- gold: gold, ذهب
+- real_estate: property, apartment, عقار, شقه
+- other: anything else
+
+Arabic numbers: الف=1000, الفين=2000, مية=100.
+If NOT a clear investment message, return {"error": "not_an_investment"}"""
+            },
+            {"role": "user", "content": transcript}
+        ],
+        response_format={"type": "json_object"}
+    )
+    result = json.loads(response.choices[0].message.content)
+    if "error" not in result:
+        if not result.get("amount") or result["amount"] <= 0:
+            return {"error": "no_amount"}
+        if not result.get("currency"):
+            result["currency"] = "EGP"
+    return result
+
 
 async def extract_expense(transcript: str) -> dict:
     response = groq_client.chat.completions.create(
@@ -141,6 +197,35 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Or send /help for all commands."
         )
         return
+
+    # Check for investment intent before transaction parsing
+    if is_investment(transcript):
+        investment = await extract_investment(transcript)
+        if "error" not in investment:
+            user_id = str(update.effective_user.id)
+            from datetime import date as _date
+            inv_date = investment.get("date", "today")
+            if inv_date == "today":
+                inv_date = _date.today().isoformat()
+            save_investment(user_id, {
+                "asset_name": investment["asset_name"],
+                "asset_type": investment.get("asset_type", "other"),
+                "amount_invested": investment["amount"],
+                "currency": investment.get("currency", "EGP"),
+                "date": inv_date,
+            })
+            type_labels = {"stocks": "📈 Stocks", "crypto": "₿ Crypto", "gold": "🥇 Gold", "real_estate": "🏠 Real Estate", "other": "💼 Other"}
+            asset_type_label = type_labels.get(investment.get("asset_type", "other"), "💼 Other")
+            await update.message.reply_text(
+                f"💹 *Investment Logged!*\n\n"
+                f"📦 Asset: *{investment['asset_name']}*\n"
+                f"🏷 Type: {asset_type_label}\n"
+                f"💰 Amount: *{investment['amount']:,.0f} {investment.get('currency', 'EGP')}*\n"
+                f"📅 Date: {inv_date}\n\n"
+                f"_Use /investments to see your portfolio._",
+                parse_mode="Markdown"
+            )
+            return
 
     expense = await extract_expense(transcript)
 
@@ -492,6 +577,50 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"I'll show your budget status in /summary",
         parse_mode="Markdown"
     )
+async def investments_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    investments = get_investments(user_id)
+    summary = get_investment_summary(user_id)
+
+    if not investments:
+        await update.message.reply_text(
+            "📊 *No investments recorded yet!*\n\n"
+            "Just tell me what you invested:\n"
+            "_\"invested 10000 in Bitcoin\"_\n"
+            "_\"bought Tesla stock for 500 USD\"_\n"
+            "_\"استثمرت 50000 في ذهب\"_",
+            parse_mode="Markdown"
+        )
+        return
+
+    total_invested = summary["total_invested"]
+    current_value = summary["current_value"]
+    total_gain = summary["total_gain"]
+    gain_pct = summary["gain_percentage"]
+
+    reply = f"💹 *Investment Portfolio*\n\n"
+    reply += f"💰 Total Invested: *{total_invested:,.0f} EGP*\n"
+    if current_value is not None:
+        gain_emoji = "📈" if (total_gain or 0) >= 0 else "📉"
+        reply += f"📊 Current Value: *{current_value:,.0f} EGP*\n"
+        reply += f"{gain_emoji} Gain/Loss: *{total_gain:+,.0f} EGP* ({gain_pct:+.1f}%)\n"
+    reply += f"📦 Holdings: {len(investments)}\n"
+
+    if summary["breakdown"]:
+        reply += "\n*By Type:*\n"
+        type_icons = {"stocks": "📈", "crypto": "₿", "gold": "🥇", "real_estate": "🏠", "other": "💼"}
+        for atype, amt in sorted(summary["breakdown"].items(), key=lambda x: x[1], reverse=True):
+            icon = type_icons.get(atype, "💼")
+            reply += f"  {icon} {atype.replace('_', ' ').title()}: {amt:,.0f} EGP\n"
+
+    reply += "\n*Recent:*\n"
+    for inv in investments[:5]:
+        reply += f"  • {inv.asset_name} — {inv.amount_invested:,.0f} {inv.currency} _{inv.date}_\n"
+
+    reply += "\n_Open /dashboard for full portfolio view._"
+    await update.message.reply_text(reply, parse_mode="Markdown")
+
+
 async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     token = get_link_token(user_id)
@@ -603,6 +732,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 *Commands:*\n"
         "/summary — monthly overview\n"
         "/history — recent transactions\n"
+        "/investments — investment portfolio\n"
         "/budget food 3000 — set a budget\n"
         "/dashboard — open web dashboard\n"
         "/notifications — configure daily/weekly summaries\n"
@@ -621,7 +751,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  Or send a voice message!\n\n"
         "📊 *Reports*\n"
         "  /summary — monthly spending overview\n"
-        "  /history — last 10 transactions (edit/delete)\n\n"
+        "  /history — last 10 transactions (edit/delete)\n"
+        "  /investments — investment portfolio\n\n"
         "🎯 *Budgets*\n"
         "  /budget — view all budgets\n"
         "  /budget food 3000 — set budget for a category\n\n"
@@ -712,6 +843,7 @@ def main():
     app.add_handler(CommandHandler("dashboard", dashboard_command))
     app.add_handler(CommandHandler("budget", budget_command))
     app.add_handler(CommandHandler("notifications", notifications_command))
+    app.add_handler(CommandHandler("investments", investments_command))
     app.add_handler(CommandHandler("deleteaccount", deleteaccount_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

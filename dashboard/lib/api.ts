@@ -115,4 +115,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then((r) => r.json()),
+  getInvestments: () => fetchWithAuth("/investments"),
+  createInvestment: (body: {
+    asset_name: string;
+    asset_type: string;
+    amount_invested: number;
+    current_value?: number;
+    currency?: string;
+    notes?: string;
+    date?: string;
+  }) => fetchWithAuthPost("/investments", body),
+  updateInvestment: (id: string, body: { current_value?: number; notes?: string }) =>
+    fetchWithAuthPatch(`/investments/${id}`, body),
+  deleteInvestment: (id: string) => fetchWithAuthDelete(`/investments/${id}`),
 };

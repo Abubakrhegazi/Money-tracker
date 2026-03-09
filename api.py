@@ -19,6 +19,8 @@ from database import (
     Session, Expense, get_monthly_summary, consume_login_token, create_login_token,
     init_db, set_budget, get_budget, delete_expense, delete_budget,
     get_notification_settings, update_notification_settings, delete_user_data, engine,
+    save_investment, get_investments, update_investment_value, delete_investment,
+    get_investment_summary, get_primary_id,
 )
 from sqlalchemy import extract, text
 from backup import run_backup as trigger_backup, get_last_backup_time
@@ -444,3 +446,84 @@ async def whatsapp_login(request: Request, token: str):
         raise HTTPException(status_code=401, detail="Invalid or expired link")
     jwt_token = create_jwt_token(user_id, user_id)
     return {"token": jwt_token, "user_id": user_id}
+
+# ── Investments ────────────────────────────────────────────────────────
+
+_VALID_ASSET_TYPES = {"stocks", "crypto", "gold", "real_estate", "other"}
+
+class InvestmentBody(BaseModel):
+    asset_name: str
+    asset_type: str
+    amount_invested: float
+    current_value: float | None = None
+    currency: str = "EGP"
+    notes: str | None = None
+    date: str | None = None
+
+class UpdateInvestmentBody(BaseModel):
+    current_value: float | None = None
+    notes: str | None = None
+
+@app.get("/investments")
+@limiter.limit("60/minute")
+async def get_user_investments(request: Request, user=Depends(get_current_user)):
+    user_id = get_primary_id(user["sub"])
+    investments = get_investments(user_id)
+    summary = get_investment_summary(user_id)
+    return {
+        "summary": summary,
+        "investments": [
+            {
+                "id": i.id,
+                "asset_name": i.asset_name,
+                "asset_type": i.asset_type,
+                "amount_invested": i.amount_invested,
+                "current_value": i.current_value,
+                "currency": i.currency,
+                "notes": i.notes,
+                "date": i.date,
+                "created_at": i.created_at.isoformat() if i.created_at else None,
+            }
+            for i in investments
+        ],
+    }
+
+@app.post("/investments")
+@limiter.limit("30/minute")
+async def create_investment(request: Request, body: InvestmentBody, user=Depends(get_current_user)):
+    if body.amount_invested <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    if body.asset_type not in _VALID_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=f"asset_type must be one of: {', '.join(_VALID_ASSET_TYPES)}")
+    from datetime import date as _date
+    inv_date = body.date or _date.today().isoformat()
+    inv_id = save_investment(user["sub"], {
+        "asset_name": body.asset_name,
+        "asset_type": body.asset_type,
+        "amount_invested": body.amount_invested,
+        "current_value": body.current_value,
+        "currency": body.currency,
+        "notes": body.notes,
+        "date": inv_date,
+    })
+    return {"id": inv_id, "status": "created"}
+
+@app.patch("/investments/{investment_id}")
+@limiter.limit("30/minute")
+async def update_investment(request: Request, investment_id: str, body: UpdateInvestmentBody, user=Depends(get_current_user)):
+    if body.current_value is not None and body.current_value < 0:
+        raise HTTPException(status_code=400, detail="current_value cannot be negative")
+    if body.current_value is None and body.notes is None:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    success = update_investment_value(user["sub"], investment_id, body.current_value, body.notes)
+    if not success:
+        raise HTTPException(status_code=404, detail="Investment not found")
+    return {"id": investment_id, "status": "updated"}
+
+@app.delete("/investments/{investment_id}")
+@limiter.limit("30/minute")
+async def delete_investment_api(request: Request, investment_id: str, user=Depends(get_current_user)):
+    success = delete_investment(user["sub"], investment_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Investment not found")
+    return {"id": investment_id, "status": "deleted"}

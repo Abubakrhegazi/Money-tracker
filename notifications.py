@@ -103,6 +103,18 @@ def generate_daily_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None
             else:
                 msg += f"✅ {cat.capitalize()}: {cat_spent:,.0f}/{budget_limit:,.0f} EGP ({pct:.0f}% used)\n"
 
+    # Investments summary
+    try:
+        from database import get_investment_summary
+        inv_summary = get_investment_summary(user_id)
+        if inv_summary["total_invested"] > 0:
+            msg += f"\n💹 *Investments:* {inv_summary['total_invested']:,.0f} EGP invested"
+            if inv_summary["current_value"] is not None:
+                msg += f" · Value: {inv_summary['current_value']:,.0f} EGP"
+            msg += "\n"
+    except Exception:
+        pass
+
     return msg
 
 
@@ -193,6 +205,20 @@ def generate_weekly_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | Non
             msg += f"  💰 Income: ↓ {abs(inc_change):.0f}% less than last week\n"
         else:
             msg += "  💰 Income: → same as last week\n"
+
+    # Investments summary
+    try:
+        from database import get_investment_summary
+        inv_summary = get_investment_summary(user_id)
+        if inv_summary["total_invested"] > 0:
+            msg += f"\n💹 *Investments:* {inv_summary['total_invested']:,.0f} EGP invested"
+            if inv_summary["current_value"] is not None:
+                gain = inv_summary["total_gain"] or 0
+                gain_emoji = "📈" if gain >= 0 else "📉"
+                msg += f" · Value: {inv_summary['current_value']:,.0f} EGP {gain_emoji}"
+            msg += "\n"
+    except Exception:
+        pass
 
     return msg
 
