@@ -222,11 +222,10 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
       amount_invested = form.amount_paid_gold ? parseFloat(form.amount_paid_gold) : 0;
     } else if (isCurrency) {
       if (!form.forex_pair.trim()) { setError("Enter the currency you hold (e.g. USD)"); return; }
-      const rate = parseFloat(form.buy_rate);
-      if (isNaN(rate) || rate <= 0) { setError("Enter the rate you bought at"); return; }
       amount_invested = parseFloat(form.amount_invested);
       if (isNaN(amount_invested) || amount_invested <= 0) { setError("Enter the amount you spent"); return; }
-      price_per_unit = rate;
+      const rate = parseFloat(form.buy_rate);
+      price_per_unit = (!isNaN(rate) && rate > 0) ? rate : undefined; // if blank, backend fetches current rate
     } else {
       amount_invested = parseFloat(form.amount_invested);
       if (isNaN(amount_invested) || amount_invested <= 0) { setError("Enter a valid amount"); return; }
@@ -441,9 +440,9 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
                     value={form.amount_invested} onChange={e => setForm(f => ({ ...f, amount_invested: e.target.value }))} />
                 </div>
                 <div>
-                  <p className={lbl}>Rate Bought At *</p>
+                  <p className={lbl}>Rate Bought At <span className="text-gray-700 normal-case font-normal">(optional)</span></p>
                   <input className={inp} type="number"
-                    placeholder={`${form.currency}/${form.forex_pair || "USD"}`}
+                    placeholder="Blank = current rate"
                     value={form.buy_rate} onChange={e => setForm(f => ({ ...f, buy_rate: e.target.value }))} />
                 </div>
               </div>
@@ -799,7 +798,7 @@ export default function InvestmentsPage() {
                               </td>
                               <td className="py-3 px-2">
                                 <button onClick={() => handleDelete(inv.id)} disabled={deletingId === inv.id}
-                                  className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-rose-400 transition disabled:opacity-30">
+                                  className="text-gray-600 hover:text-rose-400 transition disabled:opacity-30">
                                   {deletingId === inv.id
                                     ? <div className="w-4 h-4 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin" />
                                     : <Trash2 size={14} />}

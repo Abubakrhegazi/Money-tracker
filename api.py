@@ -521,12 +521,22 @@ async def get_user_investments(request: Request, user=Depends(get_current_user))
 @app.post("/investments")
 @limiter.limit("30/minute")
 async def create_investment(request: Request, body: InvestmentBody, user=Depends(get_current_user)):
-    if body.amount_invested <= 0:
+    if body.amount_invested < 0:
+        raise HTTPException(status_code=400, detail="Amount cannot be negative")
+    if body.amount_invested == 0 and body.asset_type != "gold":
         raise HTTPException(status_code=400, detail="Amount must be positive")
     if body.asset_type not in _VALID_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=f"asset_type must be one of: {', '.join(_VALID_ASSET_TYPES)}")
     from datetime import date as _date
     inv_date = body.date or _date.today().isoformat()
+    # Currency: if no buy rate provided, fetch the current market rate
+    price_per_unit = body.price_per_unit
+    if body.asset_type == "currency" and body.forex_pair and not price_per_unit:
+        try:
+            from price_fetcher import get_egp_rate
+            price_per_unit = get_egp_rate(body.forex_pair.upper())
+        except Exception:
+            price_per_unit = None
     inv_id = save_investment(user["sub"], {
         "asset_name": body.asset_name,
         "asset_type": body.asset_type,
@@ -540,7 +550,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
         "coin_id": body.coin_id,
         "forex_pair": body.forex_pair.upper() if body.forex_pair else None,
         "karat": body.karat,
-        "price_per_unit": body.price_per_unit,
+        "price_per_unit": price_per_unit,
     })
     return {"id": inv_id, "status": "created"}
 
