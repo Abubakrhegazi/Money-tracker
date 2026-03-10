@@ -557,7 +557,24 @@ async def get_user_investments(request: Request, period: str = "7d", user=Depend
             "quantity_label": quantity_label,
         })
 
-    return {"summary": summary, "investments": inv_list}
+    # Include user's display currency + conversion rate so frontend can convert
+    settings = get_user_settings(user_id)
+    display_currency = (settings or {}).get("main_currency", "EGP") or "EGP"
+    egp_rate = 1.0
+    if display_currency != "EGP":
+        try:
+            from price_fetcher import get_egp_rate
+            egp_rate = get_egp_rate(display_currency)  # 1 display_currency = X EGP
+        except Exception:
+            egp_rate = 1.0
+            display_currency = "EGP"
+
+    return {
+        "summary": summary,
+        "investments": inv_list,
+        "display_currency": display_currency,
+        "egp_per_display_unit": egp_rate,  # 1 display_currency = X EGP
+    }
 
 @app.post("/investments")
 @limiter.limit("30/minute")

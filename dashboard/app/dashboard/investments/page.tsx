@@ -693,8 +693,9 @@ function formatChartLabels(history: { price: number; recorded_at?: string }[]) {
   });
 }
 
-function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
+function InvestmentChartCard({ inv, onDelete, deleting, onEdit, fmtCx, cx, dCur }: {
   inv: any; onDelete: (id: string) => void; deleting: boolean; onEdit: (inv: any) => void;
+  fmtCx: (v: number | null | undefined) => string; cx: (v: number | null | undefined) => number | null; dCur: string;
 }) {
   const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
   const history: { price: number; recorded_at?: string }[] = inv.price_history || [];
@@ -748,13 +749,13 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
       <div>
         <p className="text-xl font-bold text-white tabular-nums">
           {inv.current_value != null
-            ? inv.current_value.toLocaleString()
-            : inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : "—"}
-          <span className="text-xs text-gray-600 font-normal ml-1">{inv.currency}</span>
+            ? fmtCx(inv.current_value)
+            : inv.amount_invested > 0 ? fmtCx(inv.amount_invested) : "—"}
+          <span className="text-xs text-gray-600 font-normal ml-1">{dCur}</span>
         </p>
         {gain != null && (
           <p className={`text-xs mt-0.5 tabular-nums ${gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}`}>
-            {gain > 0 ? "+" : ""}{gain.toLocaleString()} {inv.currency}
+            {gain > 0 ? "+" : ""}{fmtCx(gain)} {dCur}
           </p>
         )}
       </div>
@@ -774,7 +775,7 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
             <Tooltip
               contentStyle={{ background: "#1a1a24", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", fontSize: "11px" }}
               itemStyle={{ color: "#e2e8f0" }}
-              formatter={(v: any) => [`${Number(v).toLocaleString()} EGP`, "Price"]}
+              formatter={(v: any) => [`${Number(v).toLocaleString()} EGP`, "Price per unit"]}
               labelStyle={{ color: "#9ca3af", fontSize: "10px" }}
             />
             <Area type="monotone" dataKey="price" stroke={color} fill={`url(#${gradId})`} strokeWidth={2} dot={false} />
@@ -788,7 +789,7 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
 
       {/* Footer */}
       <div className="flex justify-between items-center pt-1 border-t border-white/[0.04] text-[10px] text-gray-600">
-        <span>{inv.amount_invested > 0 ? `Cost: ${inv.amount_invested.toLocaleString()} ${inv.currency}` : "No cost basis"}</span>
+        <span>{inv.amount_invested > 0 ? `Cost: ${fmtCx(inv.amount_invested)} ${dCur}` : "No cost basis"}</span>
         <span>{inv.last_price_update ? timeAgo(inv.last_price_update) : "—"}</span>
       </div>
     </div>
@@ -798,7 +799,7 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
 /* ── Main Page ─────────────────────────────────────────────── */
 export default function InvestmentsPage() {
   const router = useRouter();
-  const [data, setData] = useState<{ summary: any; investments: any[] } | null>(null);
+  const [data, setData] = useState<{ summary: any; investments: any[]; display_currency?: string; egp_per_display_unit?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -870,6 +871,19 @@ export default function InvestmentsPage() {
 
   const investments: any[] = data?.investments || [];
   const summary = data?.summary || {};
+  const dCur = data?.display_currency || "EGP";
+  const egpPerUnit = data?.egp_per_display_unit || 1;
+  // Convert EGP → display currency
+  const cx = (egp: number | null | undefined): number | null => {
+    if (egp == null) return null;
+    if (dCur === "EGP" || egpPerUnit <= 0) return egp;
+    return Math.round((egp / egpPerUnit) * 100) / 100;
+  };
+  const fmtCx = (egp: number | null | undefined): string => {
+    const v = cx(egp);
+    return v != null ? v.toLocaleString() : "—";
+  };
+
   const totalInvested: number = summary.total_invested || 0;
   const currentValue: number | null = summary.current_value ?? null;
   const totalGain: number | null = summary.total_gain ?? null;
@@ -953,12 +967,12 @@ export default function InvestmentsPage() {
           <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
             {/* Summary Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-              <StatCard label="Total Invested" value={totalInvested > 0 ? `${totalInvested.toLocaleString()} EGP` : "—"} />
+              <StatCard label="Total Invested" value={totalInvested > 0 ? `${fmtCx(totalInvested)} ${dCur}` : "—"} />
               <StatCard label="Current Value"
-                value={currentValue != null ? `${currentValue.toLocaleString()} EGP` : "—"}
+                value={currentValue != null ? `${fmtCx(currentValue)} ${dCur}` : "—"}
                 sub={currentValue == null ? "No live prices yet" : undefined} />
               <StatCard label="Total Gain"
-                value={totalGain != null ? `${totalGain > 0 ? "+" : ""}${totalGain.toLocaleString()} EGP` : "—"}
+                value={totalGain != null ? `${totalGain > 0 ? "+" : ""}${fmtCx(totalGain)} ${dCur}` : "—"}
                 positive={totalGain != null ? (totalGain > 0 ? true : totalGain < 0 ? false : null) : null} />
               <StatCard label="Return %"
                 value={gainPct != null ? `${gainPct > 0 ? "+" : ""}${gainPct.toFixed(1)}%` : "—"}
@@ -989,7 +1003,7 @@ export default function InvestmentsPage() {
                           ))}
                         </Pie>
                         <Tooltip
-                          formatter={(v: any) => `${v.toLocaleString()} EGP`}
+                          formatter={(v: any) => `${fmtCx(v)} ${dCur}`}
                           contentStyle={{ background: "#1a1a24", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", fontSize: "13px" }}
                           itemStyle={{ color: "#e2e8f0" }}
                         />
@@ -1044,6 +1058,9 @@ export default function InvestmentsPage() {
                           onDelete={handleDelete}
                           deleting={deletingId === inv.id}
                           onEdit={setEditingInv}
+                          fmtCx={fmtCx}
+                          cx={cx}
+                          dCur={dCur}
                         />
                       ))}
                     </div>
@@ -1100,14 +1117,14 @@ export default function InvestmentsPage() {
                                 ) : <span className="text-gray-600 text-xs">—</span>}
                               </td>
                               <td className="py-3 px-2 text-right text-gray-300">
-                                {inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : <span className="text-gray-600 text-xs">—</span>}
-                                {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>}
+                                {inv.amount_invested > 0 ? fmtCx(inv.amount_invested) : <span className="text-gray-600 text-xs">—</span>}
+                                {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{dCur}</span>}
                               </td>
                               <td className="py-3 px-2 text-right">
                                 {hasPrice ? (
                                   <span className="text-gray-200">
-                                    {inv.current_value.toLocaleString()}
-                                    <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                    {fmtCx(inv.current_value)}
+                                    <span className="text-gray-600 text-xs ml-1">{dCur}</span>
                                   </span>
                                 ) : (
                                   <span className="text-gray-600 text-xs">—</span>
@@ -1116,7 +1133,7 @@ export default function InvestmentsPage() {
                               <td className="py-3 px-2 text-right font-medium">
                                 {gain != null ? (
                                   <div className={gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}>
-                                    <span>{gain > 0 ? "+" : ""}{gain.toLocaleString()}</span>
+                                    <span>{gain > 0 ? "+" : ""}{fmtCx(gain)}</span>
                                     {gainPctRow != null && (
                                       <span className="text-xs opacity-70 ml-1">({gainPctRow > 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>
                                     )}
@@ -1178,20 +1195,28 @@ export default function InvestmentsPage() {
                                   </button>
                                 </div>
                               </div>
-                              <div className="flex gap-4 mt-2">
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                                {inv.quantity != null && (
+                                  <div>
+                                    <p className="text-[10px] text-gray-600 uppercase">Qty</p>
+                                    <p className="text-sm font-medium text-white">
+                                      {inv.quantity.toLocaleString()} <span className="text-gray-600 text-xs">{inv.quantity_label}</span>
+                                    </p>
+                                  </div>
+                                )}
                                 <div>
                                   <p className="text-[10px] text-gray-600 uppercase">Invested</p>
                                   <p className="text-sm font-medium text-white">
-                                    {inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : <span className="text-gray-600 text-xs">—</span>}
-                                    {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>}
+                                    {inv.amount_invested > 0 ? fmtCx(inv.amount_invested) : <span className="text-gray-600 text-xs">—</span>}
+                                    {inv.amount_invested > 0 && <span className="text-gray-600 text-xs ml-1">{dCur}</span>}
                                   </p>
                                 </div>
                                 {inv.current_value != null ? (
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Value</p>
                                     <p className="text-sm font-medium text-white">
-                                      {inv.current_value.toLocaleString()}
-                                      <span className="text-gray-600 text-xs ml-1">{inv.currency}</span>
+                                      {fmtCx(inv.current_value)}
+                                      <span className="text-gray-600 text-xs ml-1">{dCur}</span>
                                     </p>
                                   </div>
                                 ) : null}
@@ -1199,7 +1224,7 @@ export default function InvestmentsPage() {
                                   <div>
                                     <p className="text-[10px] text-gray-600 uppercase">Gain</p>
                                     <p className={`text-sm font-medium ${gain > 0 ? "text-emerald-400" : gain < 0 ? "text-rose-400" : "text-gray-400"}`}>
-                                      {gain > 0 ? "+" : ""}{gain.toLocaleString()}
+                                      {gain > 0 ? "+" : ""}{fmtCx(gain)}
                                       {gainPctRow != null && <span className="text-xs ml-1">({gainPctRow > 0 ? "+" : ""}{gainPctRow.toFixed(1)}%)</span>}
                                     </p>
                                   </div>
