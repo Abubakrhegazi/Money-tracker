@@ -519,6 +519,21 @@ async def get_user_investments(request: Request, period: str = "7d", user=Depend
     for i in investments:
         identifier = i.coin_id or i.ticker_symbol or ("gold" if i.asset_type == "gold" else None) or i.forex_pair
         history = get_price_history(identifier, days=period_days) if identifier else []
+        # Compute quantity held
+        quantity = None
+        quantity_label = None
+        if i.asset_type == "gold" and i.grams:
+            quantity = i.grams
+            quantity_label = "g"
+        elif i.asset_type == "stocks" and i.price_per_unit and i.price_per_unit > 0:
+            quantity = round(i.amount_invested / i.price_per_unit, 4)
+            quantity_label = "shares" if quantity != 1 else "share"
+        elif i.asset_type == "crypto" and i.price_per_unit and i.price_per_unit > 0:
+            quantity = round(i.amount_invested / i.price_per_unit, 6)
+            quantity_label = "units"
+        elif i.asset_type == "currency" and i.price_per_unit and i.price_per_unit > 0:
+            quantity = round(i.amount_invested / i.price_per_unit, 2)
+            quantity_label = i.forex_pair or "units"
         inv_list.append({
             "id": i.id,
             "asset_name": i.asset_name,
@@ -538,6 +553,8 @@ async def get_user_investments(request: Request, period: str = "7d", user=Depend
             "last_price_update": i.last_price_update.isoformat() if i.last_price_update else None,
             "created_at": i.created_at.isoformat() if i.created_at else None,
             "price_history": history,
+            "quantity": quantity,
+            "quantity_label": quantity_label,
         })
 
     return {"summary": summary, "investments": inv_list}

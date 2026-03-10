@@ -706,8 +706,14 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
   const chartData = formatChartLabels(history);
 
   const gradId = `cg-${inv.id}`;
-  const subLabel = inv.ticker_symbol || inv.forex_pair
-    || (inv.grams ? `${inv.karat || 24}k · ${inv.grams}g` : ASSET_LABEL[inv.asset_type]);
+  const qtyStr = inv.quantity != null ? `${inv.quantity.toLocaleString()} ${inv.quantity_label}` : null;
+  const subLabel = inv.ticker_symbol
+    ? `${inv.ticker_symbol}${qtyStr ? ` · ${qtyStr}` : ""}`
+    : inv.forex_pair
+    ? `${inv.forex_pair}${qtyStr ? ` · ${qtyStr}` : ""}`
+    : inv.grams
+    ? `${inv.karat || 24}k · ${inv.grams}g`
+    : qtyStr || ASSET_LABEL[inv.asset_type];
 
   return (
     <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 flex flex-col gap-3">
@@ -1051,6 +1057,7 @@ export default function InvestmentsPage() {
                         <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-white/5">
                           <th className="text-left py-3 px-2 font-medium">Asset</th>
                           <th className="text-left py-3 px-2 font-medium">Type</th>
+                          <th className="text-right py-3 px-2 font-medium">Qty</th>
                           <th className="text-right py-3 px-2 font-medium">Invested</th>
                           <th className="text-right py-3 px-2 font-medium">Current Value</th>
                           <th className="text-right py-3 px-2 font-medium">Gain / Loss</th>
@@ -1086,6 +1093,11 @@ export default function InvestmentsPage() {
                                   style={{ backgroundColor: `${color}22`, color }}>
                                   {ASSET_LABEL[inv.asset_type] || inv.asset_type}
                                 </span>
+                              </td>
+                              <td className="py-3 px-2 text-right text-gray-400 text-sm tabular-nums">
+                                {inv.quantity != null ? (
+                                  <span>{inv.quantity.toLocaleString()} <span className="text-gray-600 text-xs">{inv.quantity_label}</span></span>
+                                ) : <span className="text-gray-600 text-xs">—</span>}
                               </td>
                               <td className="py-3 px-2 text-right text-gray-300">
                                 {inv.amount_invested > 0 ? inv.amount_invested.toLocaleString() : <span className="text-gray-600 text-xs">—</span>}
@@ -1154,7 +1166,7 @@ export default function InvestmentsPage() {
                               <div className="flex justify-between items-start">
                                 <div>
                                   <p className="font-medium text-gray-200 text-sm">{inv.asset_name}</p>
-                                  <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]}{inv.forex_pair ? ` · ${inv.forex_pair}` : inv.ticker_symbol ? ` · ${inv.ticker_symbol}` : inv.grams ? ` · ${inv.karat ? `${inv.karat}k · ` : ""}${inv.grams}g` : ""} · {inv.date}</p>
+                                  <p className="text-gray-600 text-xs">{ASSET_LABEL[inv.asset_type]}{inv.forex_pair ? ` · ${inv.forex_pair}` : inv.ticker_symbol ? ` · ${inv.ticker_symbol}` : inv.grams ? ` · ${inv.karat ? `${inv.karat}k · ` : ""}${inv.grams}g` : ""}{inv.quantity != null ? ` · ${inv.quantity.toLocaleString()} ${inv.quantity_label}` : ""} · {inv.date}</p>
                                 </div>
                                 <div className="flex items-center gap-1.5 ml-2 mt-0.5">
                                   <button onClick={() => setEditingInv(inv)} className="text-gray-700 hover:text-violet-400 transition">

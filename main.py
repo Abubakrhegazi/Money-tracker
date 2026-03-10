@@ -199,6 +199,13 @@ If NOT a clear financial transaction with a specific amount, return {"error": "n
             return {"error": "no_amount"}
         if not result.get("currency"):
             result["currency"] = "EGP"
+        # Validate category against allowed list
+        _EXP_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
+        _INC_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
+        entry_type = result.get("type", "expense")
+        allowed = _INC_CATS if entry_type == "income" else _EXP_CATS
+        if result.get("category") not in allowed:
+            result["category"] = "other_income" if entry_type == "income" else "other"
     return result
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -418,15 +425,23 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     original_expense = context.user_data.get("pending_expense", {})
     editing_id = context.user_data.get("editing_expense_id")
 
+    _VALID_EXPENSE_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
+    _VALID_INCOME_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
+
     response = groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
             {
                 "role": "system",
-                "content": """You are correcting a financial entry (expense or income).
+                "content": f"""You are correcting a financial entry (expense or income).
                 Apply the user's correction to the existing JSON and return the updated JSON only.
                 Keep all fields that aren't being corrected unchanged.
-                Return ONLY valid JSON with fields: type, amount, currency, category, merchant, date."""
+                Return ONLY valid JSON with fields: type, amount, currency, category, merchant, date.
+
+CRITICAL: The category MUST be one of these exact values:
+- For expenses: {', '.join(sorted(_VALID_EXPENSE_CATS))}
+- For income: {', '.join(sorted(_VALID_INCOME_CATS))}
+Map any user input to the closest valid category. For example: "dining" → "food", "taxi" → "transport", "gym" → "health"."""
             },
             {
                 "role": "user",
@@ -437,6 +452,13 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
     updated_expense = json.loads(response.choices[0].message.content)
+
+    # Validate category — force to valid value
+    entry_type = updated_expense.get("type", "expense")
+    valid_cats = _VALID_INCOME_CATS if entry_type == "income" else _VALID_EXPENSE_CATS
+    if updated_expense.get("category") not in valid_cats:
+        updated_expense["category"] = original_expense.get("category", "other")
+
     context.user_data["pending_expense"] = updated_expense
     transcript = context.user_data.get("transcript", "")
 

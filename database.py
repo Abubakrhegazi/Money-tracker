@@ -247,15 +247,30 @@ def init_db():
         logger.warning(f"Could not connect to database during init: {e}")
         logger.warning("Tables will be created on first successful connection.")
 
+_VALID_EXPENSE_CATEGORIES = {
+    "food", "transport", "shopping", "bills", "entertainment",
+    "health", "education", "investment", "other",
+}
+_VALID_INCOME_CATEGORIES = {
+    "salary", "freelance", "gift", "refund", "investment", "other_income",
+}
+_ALL_VALID_CATEGORIES = _VALID_EXPENSE_CATEGORIES | _VALID_INCOME_CATEGORIES
+
+
 def save_expense(telegram_user_id: str, expense: dict, transcript: str):
     primary_id = get_primary_id(telegram_user_id)
+    # Validate category
+    category = expense.get("category", "other")
+    if category not in _ALL_VALID_CATEGORIES:
+        entry_type = expense.get("type", "expense")
+        category = "other_income" if entry_type == "income" else "other"
     session = Session()
     try:
         record = Expense(
             telegram_user_id=primary_id,
             amount=expense["amount"],
             currency=expense.get("currency", "EGP"),
-            category=expense.get("category", "other"),
+            category=category,
             merchant=expense.get("merchant"),
             date=expense.get("date", "today"),
             transcript=transcript,
