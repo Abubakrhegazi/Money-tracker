@@ -75,12 +75,22 @@ def is_greeting(text: str) -> bool:
     return False
 
 _INVESTMENT_KEYWORDS = re.compile(
-    r'\b(invested?|bought\s+stock|crypto|bitcoin|ethereum|gold|استثمرت|شريت\s+(سهم|عمله|ذهب)|put\s+into)\b',
+    r'\b(invested?|bought\s+stock|bought\s+shares?|crypto|bitcoin|ethereum|gold|استثمرت|شريت\s+(سهم|عمله|ذهب)|put\s+in(to)?|حطيت\s+(في|فى))\b',
+    re.IGNORECASE
+)
+
+# Detect currency investment phrases: "bought 50 dollars", "I have 100 USD", "اشتريت 50 دولار"
+_CURRENCY_INVESTMENT = re.compile(
+    r'\b(\d[\d,.]*)\s*(dollars?|usd|euros?|eur|pounds?|gbp|riyals?|sar|dirhams?|aed|دولار|يورو|ريال|درهم|جنيه\s*استرليني)\b',
     re.IGNORECASE
 )
 
 def is_investment(text: str) -> bool:
-    return bool(_INVESTMENT_KEYWORDS.search(text))
+    if _INVESTMENT_KEYWORDS.search(text):
+        return True
+    if _CURRENCY_INVESTMENT.search(text):
+        return True
+    return False
 
 _ASSET_TYPE_MAP = {
     "stock": "stocks", "stocks": "stocks", "share": "stocks", "shares": "stocks",
@@ -240,7 +250,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 from price_fetcher import (
                     get_gold_price_per_gram_egp, get_stock_price_egp,
-                    get_crypto_price_egp, normalize_coin_id
+                    get_crypto_price_egp, normalize_coin_id, get_egp_rate
                 )
                 if asset_type == "gold" and quantity:
                     price_per_unit = get_gold_price_per_gram_egp()
@@ -255,6 +265,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif asset_type == "stocks" and ticker and amount:
                     price_egp, _ = get_stock_price_egp(ticker)
                     price_per_unit = price_egp
+                    # If amount was given in non-EGP currency, convert to EGP
+                    if currency and currency.upper() != "EGP":
+                        rate = get_egp_rate(currency.upper())
+                        amount = amount * rate
                     live_price_note = f"_{price_egp:,.2f} EGP/share_"
                 elif asset_type == "crypto" and coin_id:
                     norm_id = normalize_coin_id(coin_id)
@@ -262,14 +276,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     price_per_unit = price_egp
                     if quantity and not amount:
                         amount = quantity * price_egp
+                    elif amount and currency and currency.upper() != "EGP":
+                        rate = get_egp_rate(currency.upper())
+                        amount = amount * rate
                     live_price_note = f"_{price_egp:,.2f} EGP/{coin_id}_"
                 elif asset_type == "currency" and forex_pair:
-                    from price_fetcher import get_egp_rate
                     rate = get_egp_rate(forex_pair.upper())
                     price_per_unit = rate  # stores the purchase exchange rate
                     if quantity and not amount:
                         amount = quantity * rate  # foreign units × rate = EGP
+                    elif amount:
+                        # "invested 50 USD" → amount=50 is foreign units, convert to EGP
+                        quantity = amount  # the foreign currency units
+                        amount = amount * rate  # EGP cost
                     live_price_note = f"_1 {forex_pair.upper()} = {rate:,.4f} EGP_"
+                else:
+                    # Generic non-EGP currency conversion for other asset types
+                    if amount and currency and currency.upper() != "EGP":
+                        rate = get_egp_rate(currency.upper())
+                        amount = amount * rate
             except Exception as e:
                 logger.warning(f"Live price fetch failed during bot parse: {e}")
 
@@ -285,7 +310,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "asset_name": asset_name,
                 "asset_type": asset_type,
                 "amount_invested": amount,
-                "currency": currency,
+                "currency": "EGP",  # always store in EGP after conversion
                 "date": inv_date,
                 "grams": quantity if asset_type == "gold" else None,
                 "ticker_symbol": ticker,
@@ -311,7 +336,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💹 *Investment Logged!*\n\n"
                     f"📦 Asset: *{asset_name}*\n"
                     f"🏷 Type: {asset_type_label}\n"
-                    f"💰 Amount: *{amount:,.0f} {currency}*\n"
+                    f"💰 Amount: *{amount:,.0f} EGP*\n"
                 )
                 if live_price_note:
                     confirm += f"{live_price_note}\n"
@@ -329,6 +354,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Try: 'spent 150 on lunch' or 'received 5000 salary'"
         )
         return
+
 
     context.user_data["pending_expense"] = expense
     context.user_data["transcript"] = transcript
@@ -361,6 +387,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Log an expense: 'spent 50 on lunch'\n"
             "Log income: 'received 5000 salary'"
         )
+        return
+
+    # Check for investment intent in voice transcription
+    if is_investment(transcript):
+        # Reuse the text handler which already has full investment logic
+        update.message.text = transcript
+        await handle_text(update, context)
         return
 
     expense = await extract_expense(transcript)

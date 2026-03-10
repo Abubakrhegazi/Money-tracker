@@ -177,6 +177,15 @@ class NotificationSettings(Base):
     last_sent_weekly = Column(DateTime, nullable=True)
     failures = Column(Integer, default=0)
 
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+    id = Column(Integer, primary_key=True)
+    telegram_user_id = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=True)
+    main_currency = Column(String(10), default="EGP")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 def init_db():
     try:
         from sqlalchemy import inspect, text
@@ -952,6 +961,41 @@ def update_notification_settings(user_id: str, **kwargs) -> dict:
         session.close()
 
 
+def get_user_settings(user_id: str) -> dict:
+    """Return user profile settings. Returns defaults if none saved."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            return {"name": None, "main_currency": "EGP"}
+        return {"name": us.name, "main_currency": us.main_currency or "EGP"}
+    finally:
+        session.close()
+
+
+def update_user_settings(user_id: str, **kwargs) -> dict:
+    """Upsert user profile settings. Only updates provided fields."""
+    user_id = get_primary_id(user_id)
+    ALLOWED = {"name", "main_currency"}
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            us = UserSettings(telegram_user_id=user_id)
+            session.add(us)
+        for k, v in kwargs.items():
+            if k in ALLOWED:
+                setattr(us, k, v)
+        session.commit()
+        return {"name": us.name, "main_currency": us.main_currency or "EGP"}
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
 def get_all_notification_users() -> list:
     """Return all users who have at least one notification enabled, with their settings."""
     session = Session()
@@ -1197,14 +1241,20 @@ def record_price_history(asset_type: str, identifier: str, price: float, currenc
         session.close()
 
 
-def get_price_history(identifier: str, limit: int = 7) -> list:
-    """Return last N price snapshots for an identifier, oldest first."""
+def get_price_history(identifier: str, limit: int = 7, days: int | None = None) -> list:
+    """Return price snapshots for an identifier, oldest first.
+    If days is given, return all records within that time window.
+    Otherwise fall back to the last `limit` records."""
     session = Session()
     try:
-        rows = session.query(InvestmentPriceHistory).filter_by(
-            identifier=identifier
-        ).order_by(InvestmentPriceHistory.recorded_at.desc()).limit(limit).all()
-        rows.reverse()
+        q = session.query(InvestmentPriceHistory).filter_by(identifier=identifier)
+        if days is not None:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            q = q.filter(InvestmentPriceHistory.recorded_at >= cutoff)
+            rows = q.order_by(InvestmentPriceHistory.recorded_at.asc()).all()
+        else:
+            rows = q.order_by(InvestmentPriceHistory.recorded_at.desc()).limit(limit).all()
+            rows.reverse()
         return [{"price": r.price, "recorded_at": r.recorded_at.isoformat()} for r in rows]
     finally:
         session.close()

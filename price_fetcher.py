@@ -143,7 +143,7 @@ def get_gold_price_per_gram_egp() -> float:
         except Exception as e:
             logger.warning(f"goldapi.io failed: {e}, trying metals-api fallback")
 
-    # Fallback: use a metals price API (open alternative)
+    # Fallback 1: metals.live — free, no key
     try:
         resp = requests.get(
             "https://api.metals.live/v1/spot/gold",
@@ -160,7 +160,54 @@ def get_gold_price_per_gram_egp() -> float:
         return price_per_gram_egp
     except Exception as e:
         logger.warning(f"metals.live fallback failed: {e}")
-        raise RuntimeError("Gold price unavailable from all sources")
+
+    # Fallback 2: Yahoo Finance — GC=F (gold futures, USD per troy oz)
+    try:
+        resp = requests.get(
+            "https://query1.finance.yahoo.com/v8/finance/chart/GC=F",
+            params={"interval": "1d", "range": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("chart", {}).get("result")
+        if result:
+            closes = result[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+            price_per_oz_usd = None
+            for c in reversed(closes):
+                if c is not None:
+                    price_per_oz_usd = float(c)
+                    break
+            if price_per_oz_usd is None or price_per_oz_usd <= 0:
+                price_per_oz_usd = float(result[0]["meta"]["regularMarketPrice"])
+            price_per_gram_usd = price_per_oz_usd / _TROY_OZ_TO_GRAM
+            usd_egp = get_egp_rate("USD")
+            price_per_gram_egp = price_per_gram_usd * usd_egp
+            logger.info(f"Gold (Yahoo GC=F): {price_per_gram_egp:.2f} EGP/gram")
+            return price_per_gram_egp
+    except Exception as e:
+        logger.warning(f"Yahoo Finance gold fallback failed: {e}")
+
+    # Fallback 3: Metal Price API (open, no key)
+    try:
+        resp = requests.get(
+            "https://api.metalpriceapi.com/v1/latest?api_key=demo&base=XAU&currencies=USD",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("success") and "rates" in data and "USD" in data["rates"]:
+            # XAU base: 1 troy oz gold = X USD → rate is USD per oz
+            price_per_oz_usd = float(data["rates"]["USD"])
+            price_per_gram_usd = price_per_oz_usd / _TROY_OZ_TO_GRAM
+            usd_egp = get_egp_rate("USD")
+            price_per_gram_egp = price_per_gram_usd * usd_egp
+            logger.info(f"Gold (metalpriceapi): {price_per_gram_egp:.2f} EGP/gram")
+            return price_per_gram_egp
+    except Exception as e:
+        logger.warning(f"metalpriceapi fallback failed: {e}")
+
+    raise RuntimeError("Gold price unavailable from all sources")
 
 # ── Stocks ────────────────────────────────────────────────────────────────
 

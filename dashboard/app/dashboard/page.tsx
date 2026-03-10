@@ -137,15 +137,17 @@ export default function DashboardPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ amount: string; category: string; merchant: string; entry_type: string }>({ amount: "", category: "", merchant: "", entry_type: "expense" });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [userName, setUserName] = useState<string | null>(null);
 
   const loadData = () => {
     if (!getToken()) { router.push("/"); return; }
     setLoading(true);
     setError(null);
-    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget(), api.getInvestments().catch(() => null)])
-      .then(([s, h, t, b, inv]) => {
+    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget(), api.getInvestments().catch(() => null), api.getUserSettings().catch(() => null)])
+      .then(([s, h, t, b, inv, settings]) => {
         setSummary(s); setHistory(h); setTrend(t); setBudgets(b || {});
         if (inv) setInvestmentSummary(inv.summary);
+        if (settings?.name) setUserName(settings.name);
       })
       .catch((err) => {
         setError(err.message || "Failed to load dashboard data");
@@ -329,7 +331,9 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3">
               <Image src="/aura-logo.png" alt="Aura" width={28} height={28} className="rounded-lg md:hidden" />
               <div>
-                <h2 className="text-lg font-semibold text-white">Dashboard</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  {userName ? `Welcome back, ${userName}` : "Dashboard"}
+                </h2>
                 <p className="text-xs text-gray-500">{summary?.month}</p>
               </div>
             </div>
@@ -339,7 +343,7 @@ export default function DashboardPage() {
                 className="flex items-center gap-2 bg-white/5 hover:bg-white/10 rounded-full pl-1 pr-3 py-1 transition"
               >
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-xs font-bold">
-                  A
+                  {userName ? userName.charAt(0).toUpperCase() : "A"}
                 </div>
                 <ChevronDown size={14} className="text-gray-400" />
               </button>

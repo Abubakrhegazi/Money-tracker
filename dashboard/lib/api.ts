@@ -109,13 +109,16 @@ export const api = {
   getNotificationSettings: () => fetchWithAuth("/notifications/settings"),
   updateNotificationSettings: (settings: Record<string, any>) =>
     fetchWithAuthPost("/notifications/settings", settings),
+  getUserSettings: () => fetchWithAuth("/settings"),
+  updateUserSettings: (settings: { name?: string; main_currency?: string }) =>
+    fetchWithAuthPost("/settings", settings),
   telegramAuth: (data: object) =>
     fetch(`${API_URL}/auth/telegram`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then((r) => r.json()),
-  getInvestments: () => fetchWithAuth("/investments"),
+  getInvestments: (period: string = "7d") => fetchWithAuth(`/investments?period=${period}`),
   checkTicker: (symbol: string) => fetchWithAuth(`/investments/check-ticker?symbol=${encodeURIComponent(symbol)}`),
   createInvestment: (body: {
     asset_name: string;

@@ -33,7 +33,7 @@ function AssetIcon({ type, size = 14 }: { type: string; size?: number }) {
     other: <Briefcase size={size} />,
   };
   return (
-    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0"
       style={{ backgroundColor: `${color}22`, color }}>
       {icon[type] ?? <Briefcase size={size} />}
     </div>
@@ -675,6 +675,24 @@ function EditInvestmentModal({ inv, onClose, onSaved }: {
 }
 
 /* ── Investment Chart Card ─────────────────────────────────── */
+function formatChartLabels(history: { price: number; recorded_at?: string }[]) {
+  if (history.length === 0) return [];
+  const dates = history.map(h => h.recorded_at ? new Date(h.recorded_at) : null);
+  // Check if all records fall on the same calendar day
+  const uniqueDays = new Set(dates.map(d => d ? d.toLocaleDateString() : ""));
+  const allSameDay = uniqueDays.size <= 1;
+
+  return history.map((h, i) => {
+    const d = dates[i];
+    if (!d) return { price: h.price, label: "" };
+    if (allSameDay) {
+      // Show time when all points are same day
+      return { price: h.price, label: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) };
+    }
+    return { price: h.price, label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
+  });
+}
+
 function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
   inv: any; onDelete: (id: string) => void; deleting: boolean; onEdit: (inv: any) => void;
 }) {
@@ -685,12 +703,7 @@ function InvestmentChartCard({ inv, onDelete, deleting, onEdit }: {
   const gainPct = gain != null && inv.amount_invested > 0
     ? (gain / inv.amount_invested) * 100 : null;
 
-  const chartData = history.map((h) => ({
-    price: h.price,
-    label: h.recorded_at
-      ? new Date(h.recorded_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-      : "",
-  }));
+  const chartData = formatChartLabels(history);
 
   const gradId = `cg-${inv.id}`;
   const subLabel = inv.ticker_symbol || inv.forex_pair
@@ -789,15 +802,16 @@ export default function InvestmentsPage() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "chart">("table");
   const [editingInv, setEditingInv] = useState<any | null>(null);
+  const [chartPeriod, setChartPeriod] = useState<string>("7d");
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback((period?: string) => {
     if (!getToken()) { router.push("/"); return; }
     setLoading(true); setError(null);
-    api.getInvestments()
+    api.getInvestments(period || chartPeriod)
       .then(d => { setData(d); setLastRefresh(new Date()); })
       .catch(e => setError(e.message || "Failed to load"))
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router, chartPeriod]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -805,7 +819,7 @@ export default function InvestmentsPage() {
   useEffect(() => {
     if (!getToken()) return;
     (api as any).refreshInvestments()
-      .then(() => api.getInvestments())
+      .then(() => api.getInvestments(chartPeriod))
       .then((d: any) => { setData(d); setLastRefresh(new Date()); })
       .catch(() => { /* silently fail */ });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -814,7 +828,7 @@ export default function InvestmentsPage() {
     setRefreshing(true);
     try {
       await (api as any).refreshInvestments();
-      await api.getInvestments().then(d => { setData(d); setLastRefresh(new Date()); });
+      await api.getInvestments(chartPeriod).then(d => { setData(d); setLastRefresh(new Date()); });
     } catch {
       // silently fail — prices unavailable
     }
@@ -825,7 +839,7 @@ export default function InvestmentsPage() {
     setDeletingId(id);
     try {
       await api.deleteInvestment(id);
-      api.getInvestments().then(setData).catch(() => { });
+      api.getInvestments(chartPeriod).then(setData).catch(() => { });
     } catch { /* handled */ }
     setDeletingId(null);
   };
@@ -841,7 +855,7 @@ export default function InvestmentsPage() {
       <div className="text-center max-w-sm">
         <AlertTriangle size={40} className="text-rose-400 mx-auto mb-3" />
         <p className="text-gray-400 text-sm mb-4">{error}</p>
-        <button onClick={loadData} className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-5 py-2.5 rounded-xl transition text-sm font-medium">
+        <button onClick={() => loadData()} className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-5 py-2.5 rounded-xl transition text-sm font-medium">
           <RefreshCw size={14} /> Retry
         </button>
       </div>
@@ -985,20 +999,32 @@ export default function InvestmentsPage() {
 
                 {/* Holdings Table / Chart */}
                 <div className="bg-gradient-to-br from-[#12121a] to-[#16162a] border border-white/5 rounded-2xl p-4 md:p-6">
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                     <h2 className="text-base font-semibold">Holdings</h2>
-                    {/* View toggle */}
-                    <div className="flex gap-1 bg-white/[0.04] rounded-xl p-1">
-                      <button
-                        onClick={() => setViewMode("table")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "table" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
-                        <List size={13} /> Table
-                      </button>
-                      <button
-                        onClick={() => setViewMode("chart")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "chart" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
-                        <BarChart2 size={13} /> Charts
-                      </button>
+                    <div className="flex items-center gap-2">
+                      {/* Period selector */}
+                      <div className="flex gap-0.5 bg-white/[0.04] rounded-xl p-1">
+                        {(["7d", "1m", "6m", "1y"] as const).map(p => (
+                          <button key={p}
+                            onClick={() => { setChartPeriod(p); loadData(p); }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${chartPeriod === p ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                            {p === "7d" ? "7D" : p === "1m" ? "1M" : p === "6m" ? "6M" : "1Y"}
+                          </button>
+                        ))}
+                      </div>
+                      {/* View toggle */}
+                      <div className="flex gap-1 bg-white/[0.04] rounded-xl p-1">
+                        <button
+                          onClick={() => setViewMode("table")}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "table" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                          <List size={13} /> Table
+                        </button>
+                        <button
+                          onClick={() => setViewMode("chart")}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${viewMode === "chart" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                          <BarChart2 size={13} /> Charts
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -1121,9 +1147,9 @@ export default function InvestmentsPage() {
                       const gainPctRow = gain != null && inv.amount_invested > 0 ? (gain / inv.amount_invested) * 100 : null;
                       const color = ASSET_COLORS[inv.asset_type] ?? "#64748b";
                       return (
-                        <div key={inv.id} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.03]">
-                          <div className="flex items-start gap-3">
-                            <AssetIcon type={inv.asset_type} size={14} />
+                        <div key={inv.id} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.03] overflow-hidden">
+                          <div className="flex items-start gap-2.5">
+                            <AssetIcon type={inv.asset_type} size={12} />
                             <div className="flex-1 min-w-0">
                               <div className="flex justify-between items-start">
                                 <div>

@@ -21,6 +21,7 @@ from database import (
     get_notification_settings, update_notification_settings, delete_user_data, engine,
     save_investment, get_investments, update_investment_value, delete_investment,
     get_investment_summary, get_primary_id, get_price_history,
+    get_user_settings, update_user_settings,
 )
 from sqlalchemy import extract, text
 from backup import run_backup as trigger_backup, get_last_backup_time
@@ -401,6 +402,25 @@ async def update_notif_settings(request: Request, body: NotificationSettingsBody
         raise HTTPException(status_code=400, detail="No settings provided")
     return update_notification_settings(user["sub"], **kwargs)
 
+# ── User Settings ─────────────────────────────────────────────────────
+
+class UserSettingsBody(BaseModel):
+    name: str | None = None
+    main_currency: str | None = None
+
+@app.get("/settings")
+@limiter.limit("60/minute")
+async def get_settings(request: Request, user=Depends(get_current_user)):
+    return get_user_settings(user["sub"])
+
+@app.post("/settings")
+@limiter.limit("10/minute")
+async def update_settings(request: Request, body: UserSettingsBody, user=Depends(get_current_user)):
+    kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not kwargs:
+        raise HTTPException(status_code=400, detail="No settings provided")
+    return update_user_settings(user["sub"], **kwargs)
+
 # ── test-token endpoint REMOVED (was a security risk) ────────────────
 
 class TelegramLinkAuthBody(BaseModel):
@@ -487,15 +507,18 @@ async def check_ticker(request: Request, symbol: str, user=Depends(get_current_u
 
 @app.get("/investments")
 @limiter.limit("60/minute")
-async def get_user_investments(request: Request, user=Depends(get_current_user)):
+async def get_user_investments(request: Request, period: str = "7d", user=Depends(get_current_user)):
     user_id = get_primary_id(user["sub"])
     investments = get_investments(user_id)
     summary = get_investment_summary(user_id)
 
+    # Map period string to days
+    period_days = {"7d": 7, "1m": 30, "6m": 180, "1y": 365}.get(period, 7)
+
     inv_list = []
     for i in investments:
         identifier = i.coin_id or i.ticker_symbol or ("gold" if i.asset_type == "gold" else None) or i.forex_pair
-        history = get_price_history(identifier) if identifier else []
+        history = get_price_history(identifier, days=period_days) if identifier else []
         inv_list.append({
             "id": i.id,
             "asset_name": i.asset_name,
@@ -548,12 +571,20 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
             amount_invested = round(body.grams * price_per_gram_24k * karat_factor, 2)
         except Exception:
             amount_invested = 0
+    # Convert amount to EGP if in a foreign currency
+    if body.currency and body.currency.upper() != "EGP" and amount_invested > 0:
+        try:
+            from price_fetcher import get_egp_rate
+            rate = get_egp_rate(body.currency.upper())
+            amount_invested = round(amount_invested * rate, 2)
+        except Exception:
+            pass  # keep original amount if conversion fails
     inv_id = save_investment(user["sub"], {
         "asset_name": body.asset_name,
         "asset_type": body.asset_type,
         "amount_invested": amount_invested,
         "current_value": body.current_value,
-        "currency": body.currency,
+        "currency": "EGP",  # always store in EGP
         "notes": body.notes,
         "date": inv_date,
         "grams": body.grams,
