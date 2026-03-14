@@ -9,7 +9,7 @@ import {
 } from "recharts";
 import {
   LogOut, TrendingUp, TrendingDown, Receipt, Wallet, Target,
-  Check, X, LayoutDashboard, Search, ChevronDown,
+  Check, X, LayoutDashboard, Search, ChevronDown, ChevronLeft, ChevronRight,
   ArrowUpRight, ArrowDownRight, Minus, Settings, Trash2,
   Menu, XCircle, AlertTriangle, RefreshCw, Pencil, LineChart,
 } from "lucide-react";
@@ -142,14 +142,19 @@ export default function DashboardPage() {
   const [sortCol, setSortCol] = useState<string>("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [confirmDeleteTx, setConfirmDeleteTx] = useState(false);
+  const PAGE_SIZE = 15;
+  const [page, setPage] = useState(0);
+  const [totalTx, setTotalTx] = useState(0);
+  const [loadingPage, setLoadingPage] = useState(false);
 
   const loadData = () => {
     if (!getToken()) { router.push("/"); return; }
     setLoading(true);
     setError(null);
-    Promise.all([api.getSummary(), api.getHistory(), api.getMonthlyTrend(), api.getBudget(), api.getInvestments().catch(() => null), api.getUserSettings().catch(() => null)])
+    Promise.all([api.getSummary(), api.getHistory(PAGE_SIZE, 0), api.getMonthlyTrend(), api.getBudget(), api.getInvestments().catch(() => null), api.getUserSettings().catch(() => null)])
       .then(([s, h, t, b, inv, settings]) => {
-        setSummary(s); setHistory(h); setTrend(t); setBudgets(b || {});
+        setSummary(s); setHistory(h.items); setTotalTx(h.total); setPage(0);
+        setTrend(t); setBudgets(b || {});
         if (inv) setInvestmentSummary(inv.summary);
         if (settings?.name) setUserName(settings.name);
       })
@@ -157,6 +162,14 @@ export default function DashboardPage() {
         setError(err.message || "Failed to load dashboard data");
       })
       .finally(() => setLoading(false));
+  };
+
+  const loadPage = (newPage: number) => {
+    setLoadingPage(true);
+    api.getHistory(PAGE_SIZE, newPage * PAGE_SIZE)
+      .then((h) => { setHistory(h.items); setTotalTx(h.total); setPage(newPage); })
+      .catch(() => {})
+      .finally(() => setLoadingPage(false));
   };
 
   useEffect(() => { loadData(); }, []);
@@ -189,11 +202,9 @@ export default function DashboardPage() {
     setDeletingId(id);
     try {
       await api.deleteExpense(id);
-      setHistory(prev => prev.filter(e => e.id !== id));
       if (closeModal) { setSelectedTx(null); setConfirmDeleteTx(false); }
-      // Refresh summary since totals changed
-      const s = await api.getSummary();
-      setSummary(s);
+      const [s, h] = await Promise.all([api.getSummary(), api.getHistory(PAGE_SIZE, page * PAGE_SIZE)]);
+      setSummary(s); setHistory(h.items); setTotalTx(h.total);
     } catch { /* Error handled by API layer */ }
     setDeletingId(null);
   };
@@ -650,7 +661,7 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredHistory.slice(0, 50).map((e) => {
+                        {filteredHistory.map((e) => {
                           const isIncome = e.entry_type === "income";
                           return (
                             <tr key={e.id} onClick={() => setSelectedTx(e)}
@@ -696,7 +707,7 @@ export default function DashboardPage() {
 
                   {/* Mobile card layout */}
                   <div className="sm:hidden space-y-2">
-                    {filteredHistory.slice(0, 20).map((e) => {
+                    {filteredHistory.map((e) => {
                       const isIncome = e.entry_type === "income";
                       const isEditing = editingId === e.id;
                       const expenseCategories = ["food","transport","shopping","bills","entertainment","health","education","other"];
@@ -757,6 +768,54 @@ export default function DashboardPage() {
                       );
                     })}
                   </div>
+
+                  {/* Pagination */}
+                  {totalTx > PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-4 px-1">
+                      <p className="text-xs text-gray-600">
+                        {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalTx)} of {totalTx}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => loadPage(page - 1)} disabled={page === 0 || loadingPage}
+                          className="p-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                          <ChevronLeft size={16} />
+                        </button>
+                        {(() => {
+                          const totalPages = Math.ceil(totalTx / PAGE_SIZE);
+                          const pages: (number | "...")[] = [];
+                          if (totalPages <= 5) {
+                            for (let i = 0; i < totalPages; i++) pages.push(i);
+                          } else {
+                            pages.push(0);
+                            if (page > 2) pages.push("...");
+                            for (let i = Math.max(1, page - 1); i <= Math.min(totalPages - 2, page + 1); i++) pages.push(i);
+                            if (page < totalPages - 3) pages.push("...");
+                            pages.push(totalPages - 1);
+                          }
+                          return pages.map((p, i) =>
+                            p === "..." ? (
+                              <span key={`dots-${i}`} className="px-1 text-gray-600 text-xs">...</span>
+                            ) : (
+                              <button key={p} onClick={() => loadPage(p)} disabled={loadingPage}
+                                className={`min-w-[32px] h-8 rounded-lg text-xs font-medium transition ${p === page ? "bg-violet-600 text-white" : "bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:border-white/20"} disabled:opacity-50`}>
+                                {p + 1}
+                              </button>
+                            )
+                          );
+                        })()}
+                        <button onClick={() => loadPage(page + 1)} disabled={page >= Math.ceil(totalTx / PAGE_SIZE) - 1 || loadingPage}
+                          className="p-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {loadingPage && (
+                    <div className="flex justify-center py-3">
+                      <div className="w-5 h-5 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+                    </div>
+                  )}
                 </>
               ) : (
                 <EmptyState
@@ -791,6 +850,142 @@ export default function DashboardPage() {
             onMouseOver={e => (e.currentTarget.style.color = '#7c6af7')}
             onMouseOut={e => (e.currentTarget.style.color = '#6b6b80')}>Terms of Service</a>
         </footer>
+
+      {/* ── Transaction Detail Modal ─────────────────────────── */}
+      {selectedTx && (() => {
+        const tx = selectedTx;
+        const isIncome = tx.entry_type === "income";
+        const isEditing = editingId === tx.id;
+        const expenseCategories = ["food","transport","shopping","bills","entertainment","health","education","investment","other"];
+        const incomeCategories = ["salary","freelance","gift","refund","investment","other_income"];
+        const categoryOptions = editForm.entry_type === "income" ? incomeCategories : expenseCategories;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+            onClick={(e) => { if (e.target === e.currentTarget) { setSelectedTx(null); setEditingId(null); setConfirmDeleteTx(false); } }}>
+            <div className="bg-[#12121a] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{CATEGORY_EMOJI[tx.category] || "📦"}</span>
+                  <div>
+                    <h3 className="font-semibold text-white">{tx.merchant || tx.category}</h3>
+                    <p className="text-xs text-gray-500">{isIncome ? "📥 Income" : "📤 Expense"} · #{tx.id}</p>
+                  </div>
+                </div>
+                <button onClick={() => { setSelectedTx(null); setEditingId(null); setConfirmDeleteTx(false); }}
+                  className="text-gray-600 hover:text-white transition p-1">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {isEditing ? (
+                /* ── Edit Form ── */
+                <div className="p-5 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Type</label>
+                      <select value={editForm.entry_type}
+                        onChange={ev => setEditForm(f => ({ ...f, entry_type: ev.target.value, category: ev.target.value === "income" ? "salary" : "food" }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50">
+                        <option value="expense">Expense</option>
+                        <option value="income">Income</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Amount</label>
+                      <input type="number" value={editForm.amount}
+                        onChange={ev => setEditForm(f => ({ ...f, amount: ev.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Category</label>
+                    <select value={editForm.category}
+                      onChange={ev => setEditForm(f => ({ ...f, category: ev.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50">
+                      {categoryOptions.map(c => <option key={c} value={c}>{CATEGORY_EMOJI[c]} {c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Merchant</label>
+                    <input type="text" value={editForm.merchant}
+                      onChange={ev => setEditForm(f => ({ ...f, merchant: ev.target.value }))}
+                      placeholder="Optional"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button onClick={saveEdit} disabled={savingEdit}
+                      className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition">
+                      {savingEdit ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={14} />}
+                      Save Changes
+                    </button>
+                    <button onClick={() => setEditingId(null)}
+                      className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-white text-sm transition">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ── Detail View ── */
+                <div className="p-5">
+                  <div className="space-y-3 mb-6">
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-sm text-gray-500">Amount</span>
+                      <span className={`text-lg font-bold ${isIncome ? "text-emerald-400" : "text-white"}`}>
+                        {isIncome ? "+" : "-"}{tx.amount.toLocaleString()} <span className="text-sm text-gray-500 font-normal">{tx.currency || "EGP"}</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-t border-white/5">
+                      <span className="text-sm text-gray-500">Category</span>
+                      <span className="text-sm text-gray-300 capitalize flex items-center gap-1.5">
+                        {CATEGORY_EMOJI[tx.category] || "📦"} {tx.category}
+                      </span>
+                    </div>
+                    {tx.merchant && (
+                      <div className="flex justify-between items-center py-2 border-t border-white/5">
+                        <span className="text-sm text-gray-500">Merchant</span>
+                        <span className="text-sm text-gray-300">{tx.merchant}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center py-2 border-t border-white/5">
+                      <span className="text-sm text-gray-500">Date</span>
+                      <span className="text-sm text-gray-300">
+                        {new Date(tx.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => startEdit(tx)}
+                      className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-violet-500/10 border border-white/10 hover:border-violet-500/30 text-gray-300 hover:text-violet-400 py-2.5 rounded-xl text-sm font-medium transition">
+                      <Pencil size={14} /> Edit
+                    </button>
+                    {confirmDeleteTx ? (
+                      <div className="flex-1 flex gap-2">
+                        <button onClick={() => handleDelete(tx.id, true)} disabled={deletingId === tx.id}
+                          className="flex-1 flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition">
+                          {deletingId === tx.id ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={14} />}
+                          Confirm
+                        </button>
+                        <button onClick={() => setConfirmDeleteTx(false)}
+                          className="px-3 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-white text-sm transition">
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteTx(true)}
+                        className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/30 text-gray-300 hover:text-rose-400 py-2.5 rounded-xl text-sm font-medium transition">
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       </div>
       );
 }

@@ -97,7 +97,7 @@ async function fetchWithAuthDelete(endpoint: string) {
 
 export const api = {
   getSummary: () => fetchWithAuth("/expenses/summary"),
-  getHistory: () => fetchWithAuth("/expenses/history"),
+  getHistory: (limit = 20, offset = 0) => fetchWithAuth(`/expenses/history?limit=${limit}&offset=${offset}`),
   getMonthlyTrend: () => fetchWithAuth("/expenses/monthly-trend"),
   getBudget: () => fetchWithAuth("/budget"),
   setBudget: (category: string, amount: number, currency: string = "EGP") =>

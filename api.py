@@ -229,27 +229,36 @@ async def monthly_summary(request: Request, user=Depends(get_current_user)):
 
 @app.get("/expenses/history")
 @limiter.limit("60/minute")
-async def expense_history(request: Request, user=Depends(get_current_user)):
+async def expense_history(request: Request, limit: int = 20, offset: int = 0, user=Depends(get_current_user)):
+    limit = min(max(limit, 1), 100)
+    offset = max(offset, 0)
     session = Session()
     try:
-        expenses = session.query(Expense).filter_by(
+        base = session.query(Expense).filter_by(
             telegram_user_id=user["sub"]
-        ).order_by(Expense.created_at.desc()).limit(50).all()
+        ).filter(Expense.is_deleted != True)
+        total = base.count()
+        expenses = base.order_by(Expense.created_at.desc()).offset(offset).limit(limit).all()
 
-        return [
-            {
-                "id": e.id,
-                "amount": e.amount,
-                "currency": e.currency,
-                "category": e.category,
-                "merchant": e.merchant,
-                "date": e.date,
-                "transcript": e.transcript,
-                "entry_type": e.entry_type or "expense",
-                "created_at": e.created_at.isoformat()
-            }
-            for e in expenses
-        ]
+        return {
+            "items": [
+                {
+                    "id": e.id,
+                    "amount": e.amount,
+                    "currency": e.currency,
+                    "category": e.category,
+                    "merchant": e.merchant,
+                    "date": e.date,
+                    "transcript": e.transcript,
+                    "entry_type": e.entry_type or "expense",
+                    "created_at": e.created_at.isoformat()
+                }
+                for e in expenses
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
     finally:
         session.close()
 
