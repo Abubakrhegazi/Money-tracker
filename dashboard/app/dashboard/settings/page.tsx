@@ -42,6 +42,55 @@ const CURRENCY_OPTIONS = [
     { value: "GBP", label: "GBP", flag: "🇬🇧", name: "British Pound" },
     { value: "SAR", label: "SAR", flag: "🇸🇦", name: "Saudi Riyal" },
     { value: "AED", label: "AED", flag: "🇦🇪", name: "UAE Dirham" },
+    { value: "KWD", label: "KWD", flag: "🇰🇼", name: "Kuwaiti Dinar" },
+    { value: "QAR", label: "QAR", flag: "🇶🇦", name: "Qatari Riyal" },
+    { value: "BHD", label: "BHD", flag: "🇧🇭", name: "Bahraini Dinar" },
+    { value: "OMR", label: "OMR", flag: "🇴🇲", name: "Omani Rial" },
+    { value: "JOD", label: "JOD", flag: "🇯🇴", name: "Jordanian Dinar" },
+    { value: "LBP", label: "LBP", flag: "🇱🇧", name: "Lebanese Pound" },
+    { value: "MAD", label: "MAD", flag: "🇲🇦", name: "Moroccan Dirham" },
+    { value: "TND", label: "TND", flag: "🇹🇳", name: "Tunisian Dinar" },
+    { value: "DZD", label: "DZD", flag: "🇩🇿", name: "Algerian Dinar" },
+    { value: "LYD", label: "LYD", flag: "🇱🇾", name: "Libyan Dinar" },
+    { value: "IQD", label: "IQD", flag: "🇮🇶", name: "Iraqi Dinar" },
+    { value: "SDG", label: "SDG", flag: "🇸🇩", name: "Sudanese Pound" },
+    { value: "TRY", label: "TRY", flag: "🇹🇷", name: "Turkish Lira" },
+    { value: "JPY", label: "JPY", flag: "🇯🇵", name: "Japanese Yen" },
+    { value: "CNY", label: "CNY", flag: "🇨🇳", name: "Chinese Yuan" },
+    { value: "INR", label: "INR", flag: "🇮🇳", name: "Indian Rupee" },
+    { value: "KRW", label: "KRW", flag: "🇰🇷", name: "South Korean Won" },
+    { value: "CHF", label: "CHF", flag: "🇨🇭", name: "Swiss Franc" },
+    { value: "CAD", label: "CAD", flag: "🇨🇦", name: "Canadian Dollar" },
+    { value: "AUD", label: "AUD", flag: "🇦🇺", name: "Australian Dollar" },
+    { value: "NZD", label: "NZD", flag: "🇳🇿", name: "New Zealand Dollar" },
+    { value: "SGD", label: "SGD", flag: "🇸🇬", name: "Singapore Dollar" },
+    { value: "HKD", label: "HKD", flag: "🇭🇰", name: "Hong Kong Dollar" },
+    { value: "SEK", label: "SEK", flag: "🇸🇪", name: "Swedish Krona" },
+    { value: "NOK", label: "NOK", flag: "🇳🇴", name: "Norwegian Krone" },
+    { value: "DKK", label: "DKK", flag: "🇩🇰", name: "Danish Krone" },
+    { value: "PLN", label: "PLN", flag: "🇵🇱", name: "Polish Zloty" },
+    { value: "CZK", label: "CZK", flag: "🇨🇿", name: "Czech Koruna" },
+    { value: "HUF", label: "HUF", flag: "🇭🇺", name: "Hungarian Forint" },
+    { value: "RUB", label: "RUB", flag: "🇷🇺", name: "Russian Ruble" },
+    { value: "BRL", label: "BRL", flag: "🇧🇷", name: "Brazilian Real" },
+    { value: "MXN", label: "MXN", flag: "🇲🇽", name: "Mexican Peso" },
+    { value: "ZAR", label: "ZAR", flag: "🇿🇦", name: "South African Rand" },
+    { value: "NGN", label: "NGN", flag: "🇳🇬", name: "Nigerian Naira" },
+    { value: "KES", label: "KES", flag: "🇰🇪", name: "Kenyan Shilling" },
+    { value: "GHS", label: "GHS", flag: "🇬🇭", name: "Ghanaian Cedi" },
+    { value: "PKR", label: "PKR", flag: "🇵🇰", name: "Pakistani Rupee" },
+    { value: "BDT", label: "BDT", flag: "🇧🇩", name: "Bangladeshi Taka" },
+    { value: "THB", label: "THB", flag: "🇹🇭", name: "Thai Baht" },
+    { value: "MYR", label: "MYR", flag: "🇲🇾", name: "Malaysian Ringgit" },
+    { value: "IDR", label: "IDR", flag: "🇮🇩", name: "Indonesian Rupiah" },
+    { value: "PHP", label: "PHP", flag: "🇵🇭", name: "Philippine Peso" },
+    { value: "VND", label: "VND", flag: "🇻🇳", name: "Vietnamese Dong" },
+    { value: "COP", label: "COP", flag: "🇨🇴", name: "Colombian Peso" },
+    { value: "ARS", label: "ARS", flag: "🇦🇷", name: "Argentine Peso" },
+    { value: "CLP", label: "CLP", flag: "🇨🇱", name: "Chilean Peso" },
+    { value: "PEN", label: "PEN", flag: "🇵🇪", name: "Peruvian Sol" },
+    { value: "ILS", label: "ILS", flag: "🇮🇱", name: "Israeli Shekel" },
+    { value: "IRR", label: "IRR", flag: "🇮🇷", name: "Iranian Rial" },
 ];
 
 interface NotifSettings {
@@ -202,21 +251,10 @@ export default function SettingsPage() {
                                 <p className="text-xs text-gray-500">Used as the default currency for tracking</p>
                             </div>
                         </div>
-                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                            {CURRENCY_OPTIONS.map((c) => (
-                                <button
-                                    key={c.value}
-                                    onClick={() => updateProfile("main_currency", c.value)}
-                                    className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border text-xs transition ${profile.main_currency === c.value
-                                        ? "bg-amber-500/15 border-amber-500/50 text-amber-300"
-                                        : "bg-white/[0.02] border-white/5 text-gray-400 hover:border-white/10"
-                                        }`}
-                                >
-                                    <span className="text-lg">{c.flag}</span>
-                                    <span className="font-medium">{c.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                        <CurrencyPicker
+                            value={profile.main_currency}
+                            onChange={(v) => updateProfile("main_currency", v)}
+                        />
                     </div>
                 </div>
 

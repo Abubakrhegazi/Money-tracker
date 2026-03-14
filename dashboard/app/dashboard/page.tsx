@@ -138,6 +138,10 @@ export default function DashboardPage() {
   const [editForm, setEditForm] = useState<{ amount: string; category: string; merchant: string; entry_type: string }>({ amount: "", category: "", merchant: "", entry_type: "expense" });
   const [savingEdit, setSavingEdit] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
+  const [sortCol, setSortCol] = useState<string>("created_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [confirmDeleteTx, setConfirmDeleteTx] = useState(false);
 
   const loadData = () => {
     if (!getToken()) { router.push("/"); return; }
@@ -181,11 +185,12 @@ export default function DashboardPage() {
     setBudgetMenuOpen(null);
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number, closeModal = false) => {
     setDeletingId(id);
     try {
       await api.deleteExpense(id);
       setHistory(prev => prev.filter(e => e.id !== id));
+      if (closeModal) { setSelectedTx(null); setConfirmDeleteTx(false); }
       // Refresh summary since totals changed
       const s = await api.getSummary();
       setSummary(s);
@@ -194,6 +199,7 @@ export default function DashboardPage() {
   };
 
   const startEdit = (e: any) => {
+    setSelectedTx(e);
     setEditingId(e.id);
     setEditForm({ amount: String(e.amount), category: e.category, merchant: e.merchant || "", entry_type: e.entry_type || "expense" });
   };
@@ -211,6 +217,7 @@ export default function DashboardPage() {
         entry_type: editForm.entry_type,
       });
       setHistory(prev => prev.map(e => e.id === editingId ? { ...e, ...updated } : e));
+      setSelectedTx((prev: any) => prev?.id === editingId ? { ...prev, ...updated } : prev);
       const s = await api.getSummary();
       setSummary(s);
       setEditingId(null);
@@ -218,15 +225,31 @@ export default function DashboardPage() {
     setSavingEdit(false);
   };
 
+  const toggleSort = (col: string) => {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
   const filteredHistory = useMemo(() => {
-    if (!searchQuery.trim()) return history;
-    const q = searchQuery.toLowerCase();
-    return history.filter(e =>
-      (e.merchant || "").toLowerCase().includes(q) ||
-      (e.category || "").toLowerCase().includes(q) ||
-      e.amount.toString().includes(q)
-    );
-  }, [history, searchQuery]);
+    let result = history;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = history.filter(e =>
+        (e.merchant || "").toLowerCase().includes(q) ||
+        (e.category || "").toLowerCase().includes(q) ||
+        e.amount.toString().includes(q)
+      );
+    }
+    return [...result].sort((a, b) => {
+      let av: any = a[sortCol], bv: any = b[sortCol];
+      if (sortCol === "created_at") { av = new Date(av).getTime(); bv = new Date(bv).getTime(); }
+      else if (sortCol === "amount") { av = Number(av); bv = Number(bv); }
+      else { av = String(av ?? "").toLowerCase(); bv = String(bv ?? "").toLowerCase(); }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [history, searchQuery, sortCol, sortDir]);
 
   if (error) return <ErrorState message={error} onRetry={loadData} />;
 
@@ -606,49 +629,32 @@ export default function DashboardPage() {
                   <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-white/5">
-                          <th className="text-left py-3 px-2 font-medium">Transaction</th>
-                          <th className="text-left py-3 px-2 font-medium">Category</th>
-                          <th className="text-left py-3 px-2 font-medium">Date</th>
-                          <th className="text-right py-3 px-2 font-medium">Amount</th>
+                        <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-white/5 select-none">
+                          {(["merchant","category","created_at","amount"] as const).map((col, i) => {
+                            const labels: Record<string, string> = { merchant: "Transaction", category: "Category", created_at: "Date", amount: "Amount" };
+                            const isActive = sortCol === col;
+                            const isRight = col === "amount";
+                            return (
+                              <th key={col} onClick={() => toggleSort(col)}
+                                className={`py-3 px-2 font-medium cursor-pointer hover:text-gray-300 transition ${isRight ? "text-right" : "text-left"}`}>
+                                <span className="inline-flex items-center gap-1">
+                                  {labels[col]}
+                                  <span className={`transition-opacity ${isActive ? "opacity-100" : "opacity-30"}`}>
+                                    {isActive && sortDir === "asc" ? "↑" : "↓"}
+                                  </span>
+                                </span>
+                              </th>
+                            );
+                          })}
                           <th className="w-10" />
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredHistory.slice(0, 30).map((e) => {
+                        {filteredHistory.slice(0, 50).map((e) => {
                           const isIncome = e.entry_type === "income";
-                          const isEditing = editingId === e.id;
-                          const expenseCategories = ["food","transport","shopping","bills","entertainment","health","education","other"];
-                          const incomeCategories = ["salary","freelance","gift","refund","investment","other_income"];
-                          const categoryOptions = editForm.entry_type === "income" ? incomeCategories : expenseCategories;
-                          if (isEditing) return (
-                            <tr key={e.id} className="border-b border-violet-500/20 bg-violet-500/[0.04]">
-                              <td colSpan={5} className="py-3 px-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <select value={editForm.entry_type} onChange={ev => setEditForm(f => ({ ...f, entry_type: ev.target.value, category: ev.target.value === "income" ? "salary" : "food" }))}
-                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50">
-                                    <option value="expense">📤 Expense</option>
-                                    <option value="income">📥 Income</option>
-                                  </select>
-                                  <input type="number" value={editForm.amount} onChange={ev => setEditForm(f => ({ ...f, amount: ev.target.value }))}
-                                    placeholder="Amount" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white w-24 focus:outline-none focus:border-violet-500/50" />
-                                  <select value={editForm.category} onChange={ev => setEditForm(f => ({ ...f, category: ev.target.value }))}
-                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50">
-                                    {categoryOptions.map(c => <option key={c} value={c}>{CATEGORY_EMOJI[c]} {c}</option>)}
-                                  </select>
-                                  <input type="text" value={editForm.merchant} onChange={ev => setEditForm(f => ({ ...f, merchant: ev.target.value }))}
-                                    placeholder="Merchant (optional)" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white w-32 focus:outline-none focus:border-violet-500/50" />
-                                  <button onClick={saveEdit} disabled={savingEdit}
-                                    className="flex items-center gap-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
-                                    {savingEdit ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={12} />} Save
-                                  </button>
-                                  <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-300 transition"><X size={14} /></button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
                           return (
-                            <tr key={e.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition group">
+                            <tr key={e.id} onClick={() => setSelectedTx(e)}
+                              className="border-b border-white/[0.03] hover:bg-white/[0.02] transition group cursor-pointer">
                               <td className="py-3 px-2">
                                 <div className="flex items-center gap-3">
                                   <span className="text-lg">{CATEGORY_EMOJI[e.category] || "📦"}</span>
@@ -670,7 +676,7 @@ export default function DashboardPage() {
                                 </span>
                                 <span className="text-gray-500 text-xs ml-1">{e.currency || "EGP"}</span>
                               </td>
-                              <td className="py-3 px-2">
+                              <td className="py-3 px-2" onClick={ev => ev.stopPropagation()}>
                                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-2 transition">
                                   <button onClick={() => startEdit(e)} className="text-gray-600 hover:text-violet-400 transition" title="Edit">
                                     <Pencil size={13} />

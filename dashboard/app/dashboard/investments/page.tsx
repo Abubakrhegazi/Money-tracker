@@ -115,32 +115,103 @@ const CURRENCIES = [
   { value: "GBP", label: "GBP — British Pound", emoji: "🇬🇧" },
   { value: "SAR", label: "SAR — Saudi Riyal", emoji: "🇸🇦" },
   { value: "AED", label: "AED — UAE Dirham", emoji: "🇦🇪" },
+  { value: "KWD", label: "KWD — Kuwaiti Dinar", emoji: "🇰🇼" },
+  { value: "QAR", label: "QAR — Qatari Riyal", emoji: "🇶🇦" },
+  { value: "BHD", label: "BHD — Bahraini Dinar", emoji: "🇧🇭" },
+  { value: "OMR", label: "OMR — Omani Rial", emoji: "🇴🇲" },
+  { value: "JOD", label: "JOD — Jordanian Dinar", emoji: "🇯🇴" },
+  { value: "LBP", label: "LBP — Lebanese Pound", emoji: "🇱🇧" },
+  { value: "MAD", label: "MAD — Moroccan Dirham", emoji: "🇲🇦" },
+  { value: "TND", label: "TND — Tunisian Dinar", emoji: "🇹🇳" },
+  { value: "DZD", label: "DZD — Algerian Dinar", emoji: "🇩🇿" },
+  { value: "LYD", label: "LYD — Libyan Dinar", emoji: "🇱🇾" },
+  { value: "IQD", label: "IQD — Iraqi Dinar", emoji: "🇮🇶" },
+  { value: "SDG", label: "SDG — Sudanese Pound", emoji: "🇸🇩" },
+  { value: "TRY", label: "TRY — Turkish Lira", emoji: "🇹🇷" },
+  { value: "JPY", label: "JPY — Japanese Yen", emoji: "🇯🇵" },
+  { value: "CNY", label: "CNY — Chinese Yuan", emoji: "🇨🇳" },
+  { value: "INR", label: "INR — Indian Rupee", emoji: "🇮🇳" },
+  { value: "KRW", label: "KRW — South Korean Won", emoji: "🇰🇷" },
+  { value: "CHF", label: "CHF — Swiss Franc", emoji: "🇨🇭" },
+  { value: "CAD", label: "CAD — Canadian Dollar", emoji: "🇨🇦" },
+  { value: "AUD", label: "AUD — Australian Dollar", emoji: "🇦🇺" },
+  { value: "NZD", label: "NZD — New Zealand Dollar", emoji: "🇳🇿" },
+  { value: "SGD", label: "SGD — Singapore Dollar", emoji: "🇸🇬" },
+  { value: "HKD", label: "HKD — Hong Kong Dollar", emoji: "🇭🇰" },
+  { value: "SEK", label: "SEK — Swedish Krona", emoji: "🇸🇪" },
+  { value: "NOK", label: "NOK — Norwegian Krone", emoji: "🇳🇴" },
+  { value: "DKK", label: "DKK — Danish Krone", emoji: "🇩🇰" },
+  { value: "PLN", label: "PLN — Polish Zloty", emoji: "🇵🇱" },
+  { value: "CZK", label: "CZK — Czech Koruna", emoji: "🇨🇿" },
+  { value: "HUF", label: "HUF — Hungarian Forint", emoji: "🇭🇺" },
+  { value: "RUB", label: "RUB — Russian Ruble", emoji: "🇷🇺" },
+  { value: "BRL", label: "BRL — Brazilian Real", emoji: "🇧🇷" },
+  { value: "MXN", label: "MXN — Mexican Peso", emoji: "🇲🇽" },
+  { value: "ZAR", label: "ZAR — South African Rand", emoji: "🇿🇦" },
+  { value: "NGN", label: "NGN — Nigerian Naira", emoji: "🇳🇬" },
+  { value: "KES", label: "KES — Kenyan Shilling", emoji: "🇰🇪" },
+  { value: "GHS", label: "GHS — Ghanaian Cedi", emoji: "🇬🇭" },
+  { value: "PKR", label: "PKR — Pakistani Rupee", emoji: "🇵🇰" },
+  { value: "BDT", label: "BDT — Bangladeshi Taka", emoji: "🇧🇩" },
+  { value: "THB", label: "THB — Thai Baht", emoji: "🇹🇭" },
+  { value: "MYR", label: "MYR — Malaysian Ringgit", emoji: "🇲🇾" },
+  { value: "IDR", label: "IDR — Indonesian Rupiah", emoji: "🇮🇩" },
+  { value: "PHP", label: "PHP — Philippine Peso", emoji: "🇵🇭" },
+  { value: "VND", label: "VND — Vietnamese Dong", emoji: "🇻🇳" },
+  { value: "COP", label: "COP — Colombian Peso", emoji: "🇨🇴" },
+  { value: "ARS", label: "ARS — Argentine Peso", emoji: "🇦🇷" },
+  { value: "CLP", label: "CLP — Chilean Peso", emoji: "🇨🇱" },
+  { value: "PEN", label: "PEN — Peruvian Sol", emoji: "🇵🇪" },
+  { value: "ILS", label: "ILS — Israeli Shekel", emoji: "🇮🇱" },
+  { value: "IRR", label: "IRR — Iranian Rial", emoji: "🇮🇷" },
 ];
 
 /* ── Reusable custom dropdown ──────────────────────────────── */
-function CustomDropdown({ value, onChange, options }: {
+function CustomDropdown({ value, onChange, options, searchable }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string; emoji: string }[];
+  searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const selected = options.find(a => a.value === value) || options[0];
+  const filtered = searchable && search
+    ? options.filter(a => a.label.toLowerCase().includes(search.toLowerCase()) || a.value.toLowerCase().includes(search.toLowerCase()))
+    : options;
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)}
+      <button type="button" onClick={() => { setOpen(o => !o); setSearch(""); }}
         className="w-full flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50 transition">
-        <span>{selected.emoji} {selected.label}</span>
-        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="truncate">{selected.emoji} {selected.label}</span>
+        <ChevronDown size={14} className={`text-gray-400 transition-transform shrink-0 ml-1 ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-          {options.map(a => (
-            <button key={a.value} type="button"
-              onClick={() => { onChange(a.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition hover:bg-white/5 ${a.value === value ? "text-violet-400 bg-violet-500/10" : "text-gray-200"}`}>
-              <span>{a.emoji}</span><span>{a.label}</span>
-            </button>
-          ))}
+          {searchable && (
+            <div className="p-2 border-b border-white/5">
+              <input
+                autoFocus
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
+                placeholder="Search currencies..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+            </div>
+          )}
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.length === 0 && (
+              <p className="text-xs text-gray-600 px-3 py-2.5">No results</p>
+            )}
+            {filtered.map(a => (
+              <button key={a.value} type="button"
+                onClick={() => { onChange(a.value); setOpen(false); setSearch(""); }}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm transition hover:bg-white/5 ${a.value === value ? "text-violet-400 bg-violet-500/10" : "text-gray-200"}`}>
+                <span>{a.emoji}</span><span className="truncate">{a.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -445,8 +516,12 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
             <div className="space-y-3">
               <div>
                 <p className={lbl}>Currency You Hold *</p>
-                <input className={inp} placeholder="e.g. USD, EUR, GBP, SAR"
-                  value={form.forex_pair} onChange={e => setForm(f => ({ ...f, forex_pair: e.target.value.toUpperCase() }))} />
+                <CustomDropdown
+                  searchable
+                  value={form.forex_pair || "USD"}
+                  onChange={v => setForm(f => ({ ...f, forex_pair: v, asset_name: f.asset_name || `${v} Savings` }))}
+                  options={CURRENCIES.filter(c => c.value !== "EGP")}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -493,7 +568,7 @@ function AddInvestmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className={lbl}>Currency</p>
-                <CustomDropdown value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
+                <CustomDropdown searchable value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} options={CURRENCIES} />
               </div>
               <div>
                 <p className={lbl}>Date</p>

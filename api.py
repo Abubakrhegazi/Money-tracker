@@ -155,9 +155,14 @@ async def manual_backup(request: Request):
 # ── Auth ──────────────────────────────────────────────────────────────
 
 def verify_telegram_auth(data: dict) -> bool:
-    """Verify the data actually came from Telegram"""
+    """Verify the data actually came from Telegram and is fresh (< 24h)."""
+    import time
     check_hash = data.pop("hash", None)
     if not check_hash:
+        return False
+
+    auth_date = int(data.get("auth_date", 0))
+    if time.time() - auth_date > 86400:
         return False
 
     data_check_string = "\n".join(
@@ -450,7 +455,7 @@ _PHONE_REGEX = re.compile(r"^\+?[1-9]\d{6,14}$")
 async def create_whatsapp_login(request: Request, phone: str):
     # Gate: only the bot should call this endpoint
     api_key = request.headers.get("X-Internal-Api-Key", "")
-    if INTERNAL_API_KEY and api_key != INTERNAL_API_KEY:
+    if not INTERNAL_API_KEY or api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=403, detail="Forbidden")
     # Validate phone format
     if not _PHONE_REGEX.match(phone):
@@ -497,7 +502,7 @@ async def check_ticker(request: Request, symbol: str, user=Depends(get_current_u
     """Validate a stock ticker and return its current price in EGP."""
     from price_fetcher import get_stock_price_egp
     symbol = symbol.strip().upper()
-    if not symbol or len(symbol) > 15:
+    if not symbol or len(symbol) > 15 or not re.match(r'^[A-Z0-9.\-]{1,15}$', symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
     try:
         price_egp, _ = get_stock_price_egp(symbol)

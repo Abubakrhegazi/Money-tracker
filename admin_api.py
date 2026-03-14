@@ -3,10 +3,13 @@ Admin API — All admin endpoints for the Aura admin dashboard.
 Mounted on the main FastAPI app at /admin.
 """
 import os
+import logging
 import hashlib
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from time import time
+
+logger = logging.getLogger(__name__)
 
 import bcrypt
 from fastapi import APIRouter, HTTPException, Request, Response, Depends, Cookie, Query
@@ -311,7 +314,7 @@ async def change_password(body: ChangePasswordBody, request: Request, admin: str
     ip = _get_client_ip(request)
     log_admin_action(admin, "change_password", ip=ip, details="Password updated")
     # Never return the hash in the response — log it server-side only
-    print(f"[ADMIN] New password hash (update ADMIN_PASSWORD_HASH env var): {new_hash}")
+    logger.info("[ADMIN] Password changed. Update ADMIN_PASSWORD_HASH env var with the new bcrypt hash.")
     return {"status": "ok", "note": "Password updated. Check server logs for the new hash to update your env var."}
 
 

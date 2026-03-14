@@ -14,6 +14,9 @@ from datetime import datetime
 
 FRONTEND_URL = "https://aurabot.website"
 
+VALID_EXPENSE_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
+VALID_INCOME_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
+
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -362,6 +365,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    valid_cats = VALID_INCOME_CATS if expense.get("type") == "income" else VALID_EXPENSE_CATS
+    if expense.get("category") not in valid_cats:
+        expense["category"] = "other_income" if expense.get("type") == "income" else "other"
 
     context.user_data["pending_expense"] = expense
     context.user_data["transcript"] = transcript
@@ -411,6 +417,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    valid_cats = VALID_INCOME_CATS if expense.get("type") == "income" else VALID_EXPENSE_CATS
+    if expense.get("category") not in valid_cats:
+        expense["category"] = "other_income" if expense.get("type") == "income" else "other"
+
     context.user_data["pending_expense"] = expense
     context.user_data["transcript"] = transcript
 
@@ -425,9 +435,6 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     original_expense = context.user_data.get("pending_expense", {})
     editing_id = context.user_data.get("editing_expense_id")
 
-    _VALID_EXPENSE_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
-    _VALID_INCOME_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
-
     response = groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
@@ -439,8 +446,8 @@ async def handle_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 Return ONLY valid JSON with fields: type, amount, currency, category, merchant, date.
 
 CRITICAL: The category MUST be one of these exact values:
-- For expenses: {', '.join(sorted(_VALID_EXPENSE_CATS))}
-- For income: {', '.join(sorted(_VALID_INCOME_CATS))}
+- For expenses: {', '.join(sorted(VALID_EXPENSE_CATS))}
+- For income: {', '.join(sorted(VALID_INCOME_CATS))}
 Map any user input to the closest valid category. For example: "dining" → "food", "taxi" → "transport", "gym" → "health"."""
             },
             {
@@ -455,7 +462,7 @@ Map any user input to the closest valid category. For example: "dining" → "foo
 
     # Validate category — force to valid value
     entry_type = updated_expense.get("type", "expense")
-    valid_cats = _VALID_INCOME_CATS if entry_type == "income" else _VALID_EXPENSE_CATS
+    valid_cats = VALID_INCOME_CATS if entry_type == "income" else VALID_EXPENSE_CATS
     if updated_expense.get("category") not in valid_cats:
         updated_expense["category"] = original_expense.get("category", "other")
 
