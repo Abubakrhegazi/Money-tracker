@@ -11,6 +11,7 @@ import {
   Zap,
   Shield,
   TrendingUp,
+  LineChart,
 } from "lucide-react";
 import { setToken } from "@/lib/api";
 import { Particles } from "@/components/ui/particles";
@@ -69,6 +70,12 @@ const features = [
     title: "Instant Insights",
     description:
       "Get real-time spending summaries with a single command. Know your budget status at any moment.",
+  },
+  {
+    icon: <LineChart className="w-6 h-6 text-violet-400" />,
+    title: "Investment Portfolio",
+    description:
+      "Track stocks, crypto, gold, and forex in one place. Live prices, gain/loss, and portfolio value — always up to date.",
   },
   {
     icon: <Shield className="w-6 h-6 text-fuchsia-400" />,
@@ -185,10 +192,14 @@ export default function LandingPage() {
                     href="https://t.me/walletTrackinggBot"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group border border-white/10 rounded-full px-5 py-2.5 hover:border-white/20"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    Use Telegram instead
+                    <ShimmerButton
+                      className="text-base font-semibold px-8 py-3"
+                      background="rgba(0, 136, 204, 1)"
+                    >
+                      <Send className="w-4 h-4 mr-2 inline" />
+                      Start on Telegram
+                    </ShimmerButton>
                   </a>
                 </>
               )}
@@ -356,10 +367,14 @@ export default function LandingPage() {
                   href="https://t.me/walletTrackinggBot"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm group border border-white/10 rounded-full px-6 py-3 hover:border-white/20"
                 >
-                  <Send className="w-4 h-4" />
-                  Use Telegram
+                  <ShimmerButton
+                    className="text-lg font-semibold px-10 py-4"
+                    background="rgba(0, 136, 204, 1)"
+                  >
+                    <Send className="w-5 h-5 mr-2 inline" />
+                    Open Aura on Telegram
+                  </ShimmerButton>
                 </a>
               </div>
             )}
