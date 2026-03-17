@@ -43,16 +43,10 @@ const features = [
       "Send a voice note or text message and Aura instantly logs your expense — no forms, no friction.",
   },
   {
-    icon: <Tag className="w-6 h-6 text-fuchsia-400" />,
-    title: "AI Categorization",
+    icon: <LineChart className="w-6 h-6 text-violet-400" />,
+    title: "Investment Portfolio",
     description:
-      "Every transaction is automatically sorted into the right category using AI, so your data is always clean and organized.",
-  },
-  {
-    icon: <BarChart3 className="w-6 h-6 text-violet-400" />,
-    title: "Spending Analytics",
-    description:
-      "Beautiful charts and breakdowns show you exactly where your money goes — daily, weekly, or monthly.",
+      "Track stocks, crypto, gold, and forex in one place. Live prices, gain/loss, and portfolio value — always up to date.",
   },
   {
     icon: (
@@ -66,16 +60,22 @@ const features = [
       "No app to download. Aura lives inside Telegram and WhatsApp — the apps you already use every day.",
   },
   {
+    icon: <BarChart3 className="w-6 h-6 text-violet-400" />,
+    title: "Spending Analytics",
+    description:
+      "Beautiful charts and breakdowns show you exactly where your money goes — daily, weekly, or monthly.",
+  },
+  {
+    icon: <Tag className="w-6 h-6 text-fuchsia-400" />,
+    title: "AI Categorization",
+    description:
+      "Every transaction is automatically sorted into the right category using AI, so your data is always clean and organized.",
+  },
+  {
     icon: <Zap className="w-6 h-6 text-violet-400" />,
     title: "Instant Insights",
     description:
       "Get real-time spending summaries with a single command. Know your budget status at any moment.",
-  },
-  {
-    icon: <LineChart className="w-6 h-6 text-violet-400" />,
-    title: "Investment Portfolio",
-    description:
-      "Track stocks, crypto, gold, and forex in one place. Live prices, gain/loss, and portfolio value — always up to date.",
   },
   {
     icon: <Shield className="w-6 h-6 text-fuchsia-400" />,

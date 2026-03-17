@@ -104,11 +104,25 @@ _ASSET_TYPE_MAP = {
 
 async def extract_investment(transcript: str) -> dict:
     response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
-                "content": """You are an investment parser. Extract investment details from the message.
+                "content": """You are an investment parser for Egyptian Arabic and English. Extract investment details from the message.
+
+ARABIC NUMBERS — always parse these correctly:
+- مية=100, مياتين=200, تلتميه/تلاتميه=300, اربعميه=400, خمسميه=500
+- الف=1000, الفين=2000, تلاتالاف=3000, عشرالاف=10000, عشرين الف=20000, مية الف=100000
+- ونص=+0.5 (e.g. "خمسميه ونص"=550, "الف ونص"=1500)
+- Mixed: "5 الاف"=5000
+
+EGYPTIAN ARABIC EXAMPLES:
+"اشتريت دهب عشر جرام" → asset_type=gold, quantity=10, amount=null
+"حطيت خمسة الاف في بيتكوين" → asset_type=crypto, amount=5000, coin_id=bitcoin
+"اشتريت دولارات بعشرين الف" → asset_type=currency, amount=20000, forex_pair=USD
+"اشتريت اسهم ابل بخمسة الاف" → asset_type=stocks, amount=5000, ticker_symbol=AAPL
+"استثمرت مية الف في شقه" → asset_type=real_estate, amount=100000
+"اشتريت نص جرام دهب" → asset_type=gold, quantity=0.5
 
 Return ONLY this JSON:
 {
@@ -125,21 +139,13 @@ Return ONLY this JSON:
 }
 
 asset_type mapping:
-- stocks: shares, stock, سهم, بورصة — set ticker_symbol if mentioned
-- crypto: bitcoin, ethereum, BTC, ETH, عمله رقمية — set coin_id to lowercase coin name
-- gold: gold, ذهب — quantity is grams
-- real_estate: property, apartment, عقار, شقه
-- currency: USD, EUR, دولار, يورو, جنيه استرليني — set forex_pair to the currency code
+- stocks: shares, stock, سهم, بورصة, اسهم — set ticker_symbol if mentioned
+- crypto: bitcoin, ethereum, BTC, ETH, عمله رقمية, كريبتو — set coin_id to lowercase coin name
+- gold: gold, ذهب, دهب — quantity is grams
+- real_estate: property, apartment, عقار, شقه, شقة
+- currency: USD, EUR, دولار, يورو, جنيه استرليني, دولارات — set forex_pair to currency code
 - other: anything else
 
-Examples:
-"bought 10 grams of gold" → asset_type=gold, quantity=10, amount=null
-"invested 5000 in Tesla" → asset_type=stocks, amount=5000, ticker_symbol=TSLA
-"bought 0.1 bitcoin" → asset_type=crypto, quantity=0.1, coin_id=bitcoin
-"bought 1000 dollars" → asset_type=currency, amount=null, forex_pair=USD
-"invested 50000 EGP in USD" → asset_type=currency, amount=50000, forex_pair=USD
-
-Arabic numbers: الف=1000, الفين=2000, مية=100.
 If NOT a clear investment message, return {"error": "not_an_investment"}"""
             },
             {"role": "user", "content": transcript}
@@ -160,21 +166,39 @@ If NOT a clear investment message, return {"error": "not_an_investment"}"""
 
 async def extract_expense(transcript: str) -> dict:
     response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
-                "content": """You are a financial transaction parser. Your ONLY job is to extract transaction data from messages that CLEARLY describe spending or receiving money.
+                "content": """You are a financial transaction parser for Egyptian Arabic and English. Extract transaction data from messages that clearly describe spending or receiving money.
 
 CRITICAL RULES:
 1. The message MUST contain a specific monetary amount (a number). If there is NO number/amount, return {"error": "not_a_transaction"}
 2. Greetings, questions, small talk, or vague statements are NOT transactions. Return {"error": "not_a_transaction"}
-3. The merchant field should ONLY be a real business/store/person name. If none mentioned, set merchant to null. Do NOT use random words as merchant.
-4. "hello", "hi", "hey", "good morning", etc. are NEVER transactions.
-5. The category MUST be one of the exact values listed below. Never use any other category.
+3. The merchant field should ONLY be a real business/store/person name. If none mentioned, set merchant to null.
+4. "hello", "hi", "hey", "مرحبا", "ازيك", "صباح الخير" etc. are NEVER transactions.
+5. The category MUST be one of the exact values listed below.
 
-INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift, معايا (Egyptian: "I have/got"), معي, عندي, جيبي, حصلت على, اتصرفلي
-EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على
+INCOME keywords: received, earned, got paid, salary, مرتب, استلمت, جالي, اتحوللي, refund, freelance, gift, معايا, معي, عندي, جيبي, حصلت على, اتصرفلي
+EXPENSE keywords: spent, paid, bought, cost, صرفت, دفعت, اشتريت, على, بـ
+
+ARABIC NUMBERS — always parse these correctly:
+- مية=100, مياتين=200, تلتميه/تلاتميه=300, اربعميه=400, خمسميه=500, ستميه=600, سبعميه=700, تمنميه=800, تسعميه=900
+- الف=1000, الفين=2000, تلاتالاف/تلت الاف=3000, اربعالاف=4000, خمسالاف=5000, عشرالاف=10000, عشرين الف=20000, مية الف=100000
+- ونص=+0.5 (e.g. "مياتين ونص"=250, "الف ونص"=1500)
+- حوالي/تقريباً=approximately, still extract the number
+- Mixed: "5 الاف"=5000, "10 مية"=1000
+
+EGYPTIAN ARABIC EXAMPLES:
+"صرفت مياتين على أكل امبارح" → type=expense, amount=200, category=food, date=yesterday
+"اشتريت كافيه بخمسين جنيه" → type=expense, amount=50, category=food
+"دفعت الفين على الدكتور" → type=expense, amount=2000, category=health
+"جالي مرتبي عشرين الف" → type=income, amount=20000, category=salary
+"استلمت خمسميه ونص من احمد" → type=income, amount=550, merchant=احمد
+"عملت اوبر بخمسة وعشرين" → type=expense, amount=25, category=transport
+"صرفت على بنزين تلتميه" → type=expense, amount=300, category=transport
+"اشتريت حاجات من كارفور بالف ونص" → type=expense, amount=1500, category=shopping, merchant=كارفور
+"دفعت فاتورة النت خمسميه" → type=expense, amount=500, category=bills
 
 Return ONLY this JSON:
 {
@@ -184,10 +208,9 @@ Return ONLY this JSON:
   "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|investment|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
   "merchant": <real business/person name or null>,
-  "date": <"today" if not mentioned>
+  "date": <"today" if not mentioned, "yesterday" for امبارح>
 }
-Arabic numbers: الف=1000, الفين=2000, تلاتالاف=3000, مية=100.
-Always add parts together, never ignore the thousands part.
+
 If NOT a clear financial transaction with a specific amount, return {"error": "not_a_transaction"}"""
             },
             {"role": "user", "content": transcript}
