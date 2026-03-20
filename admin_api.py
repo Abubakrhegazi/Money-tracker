@@ -361,3 +361,39 @@ async def env_config(admin: str = Depends(get_current_admin)):
         "set": bool(os.getenv(k)),
         "value": "✅ set" if os.getenv(k) else "❌ not set",
     } for k in keys]
+
+
+# ── Subscription management ──────────────────────────────────────────────
+
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+
+class SetPlanBody(BaseModel):
+    telegram_id: str
+    plan: str  # "free" | "pro" | "elite"
+    days: int = 30
+
+
+@router.post("/set-plan")
+async def admin_set_plan(request: Request, body: SetPlanBody):
+    """
+    Manually set a user's plan. Protected by ADMIN_SECRET header.
+    Used for testing and gifting subscriptions.
+    """
+    secret = request.headers.get("X-Admin-Secret", "")
+    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    if body.plan not in ("free", "pro", "elite"):
+        raise HTTPException(status_code=400, detail="Plan must be 'free', 'pro', or 'elite'")
+    if body.days < 1 or body.days > 3650:
+        raise HTTPException(status_code=400, detail="Days must be between 1 and 3650")
+
+    from database import set_user_plan
+    success = set_user_plan(body.telegram_id, body.plan, body.days)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to set plan")
+
+    ip = _get_client_ip(request)
+    log_admin_action("api", "set_plan", target_type="user", target_id=body.telegram_id,
+                     ip=ip, details=f"plan={body.plan} days={body.days}")
+
+    return {"status": "ok", "telegram_id": body.telegram_id, "plan": body.plan, "days": body.days}

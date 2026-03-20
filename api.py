@@ -25,6 +25,7 @@ from database import (
 )
 from sqlalchemy import extract, text
 from backup import run_backup as trigger_backup, get_last_backup_time
+from subscription import require_plan
 
 # ── Structured logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -82,6 +83,10 @@ app.add_middleware(
 # ── Admin router ─────────────────────────────────────────────────────────
 from admin_api import router as admin_router
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
+
+# ── Payments router ──────────────────────────────────────────────────────
+from payments import router as payments_router
+app.include_router(payments_router)
 
 # ── Security headers middleware ──────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -435,6 +440,15 @@ async def update_settings(request: Request, body: UserSettingsBody, user=Depends
         raise HTTPException(status_code=400, detail="No settings provided")
     return update_user_settings(user["sub"], **kwargs)
 
+# ── Subscription info ────────────────────────────────────────────────
+
+@app.get("/subscription")
+@limiter.limit("60/minute")
+async def get_subscription(request: Request, user=Depends(get_current_user)):
+    """Return the user's current subscription plan info."""
+    from database import get_user_plan
+    return get_user_plan(user["sub"])
+
 # ── test-token endpoint REMOVED (was a security risk) ────────────────
 
 class TelegramLinkAuthBody(BaseModel):
@@ -451,6 +465,21 @@ async def telegram_link_auth(request: Request, body: TelegramLinkAuthBody):
 
     if not telegram_user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired link")
+
+    # Check if user has Pro+ plan for dashboard access
+    from database import user_has_plan, get_user_plan
+    if not user_has_plan(str(telegram_user_id), "pro"):
+        from subscription import send_upgrade_message_sync
+        send_upgrade_message_sync(str(telegram_user_id), "pro")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "plan_required",
+                "required_plan": "pro",
+                "message": "Dashboard access requires Aura Pro.",
+                "upgrade_url": "https://aurabot.website/upgrade",
+            },
+        )
 
     token = create_jwt_token(str(telegram_user_id), "")
     return {"token": token}
@@ -507,7 +536,7 @@ class UpdateInvestmentBody(BaseModel):
 
 @app.get("/investments/check-ticker")
 @limiter.limit("20/minute")
-async def check_ticker(request: Request, symbol: str, user=Depends(get_current_user)):
+async def check_ticker(request: Request, symbol: str, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     """Validate a stock ticker and return its current price in EGP."""
     from price_fetcher import get_stock_price_egp
     symbol = symbol.strip().upper()
@@ -521,7 +550,7 @@ async def check_ticker(request: Request, symbol: str, user=Depends(get_current_u
 
 @app.get("/investments")
 @limiter.limit("60/minute")
-async def get_user_investments(request: Request, period: str = "7d", user=Depends(get_current_user)):
+async def get_user_investments(request: Request, period: str = "7d", user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     user_id = get_primary_id(user["sub"])
     investments = get_investments(user_id)
     summary = get_investment_summary(user_id)
@@ -592,7 +621,7 @@ async def get_user_investments(request: Request, period: str = "7d", user=Depend
 
 @app.post("/investments")
 @limiter.limit("30/minute")
-async def create_investment(request: Request, body: InvestmentBody, user=Depends(get_current_user)):
+async def create_investment(request: Request, body: InvestmentBody, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     if body.amount_invested < 0:
         raise HTTPException(status_code=400, detail="Amount cannot be negative")
     if body.amount_invested == 0 and body.asset_type != "gold":
@@ -646,7 +675,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
 
 @app.patch("/investments/{investment_id}")
 @limiter.limit("30/minute")
-async def update_investment(request: Request, investment_id: str, body: UpdateInvestmentBody, user=Depends(get_current_user)):
+async def update_investment(request: Request, investment_id: str, body: UpdateInvestmentBody, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     if body.current_value is not None and body.current_value < 0:
         raise HTTPException(status_code=400, detail="current_value cannot be negative")
     if body.amount_invested is not None and body.amount_invested <= 0:
@@ -660,7 +689,7 @@ async def update_investment(request: Request, investment_id: str, body: UpdateIn
 
 @app.delete("/investments/{investment_id}")
 @limiter.limit("30/minute")
-async def delete_investment_api(request: Request, investment_id: str, user=Depends(get_current_user)):
+async def delete_investment_api(request: Request, investment_id: str, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     success = delete_investment(user["sub"], investment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Investment not found")
@@ -668,7 +697,7 @@ async def delete_investment_api(request: Request, investment_id: str, user=Depen
 
 @app.post("/investments/refresh")
 @limiter.limit("10/minute")
-async def refresh_investment_prices(request: Request, user=Depends(get_current_user)):
+async def refresh_investment_prices(request: Request, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     """Trigger an immediate price refresh for the authenticated user's portfolio."""
     try:
         from price_fetcher import refresh_user_investment_prices

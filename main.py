@@ -9,7 +9,9 @@ from database import (
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
     get_notification_settings, update_notification_settings, delete_user_data,
     get_link_token, save_investment, get_investments, get_investment_summary,
+    activate_trial, get_user_plan,
 )
+from subscription import check_plan, send_upgrade_message
 from datetime import datetime
 
 FRONTEND_URL = "https://aurabot.website"
@@ -205,7 +207,7 @@ Return ONLY this JSON:
   "type": "income" or "expense",
   "amount": <number — MUST be a real number, never null>,
   "currency": <"EGP" if not mentioned>,
-  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|investment|other>,
+  "category": <for expenses: food|transport|shopping|bills|entertainment|health|education|investment|gifts|other>,
              <for income: salary|freelance|gift|refund|investment|other_income>,
   "merchant": <real business/person name or null>,
   "date": <"today" if not mentioned, "yesterday" for امبارح>
@@ -226,7 +228,7 @@ If NOT a clear financial transaction with a specific amount, return {"error": "n
         if not result.get("currency"):
             result["currency"] = "EGP"
         # Validate category against allowed list
-        _EXP_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
+        _EXP_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "gifts", "other"}
         _INC_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
         entry_type = result.get("type", "expense")
         allowed = _INC_CATS if entry_type == "income" else _EXP_CATS
@@ -258,9 +260,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check for investment intent before transaction parsing
     if is_investment(transcript):
+        user_id = str(update.effective_user.id)
+        if not check_plan(user_id, "pro"):
+            await send_upgrade_message(update, "pro")
+            return
         investment = await extract_investment(transcript)
         if "error" not in investment:
-            user_id = str(update.effective_user.id)
             from datetime import date as _date
             inv_date = investment.get("date", "today")
             if inv_date == "today":
@@ -702,6 +707,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    if not check_plan(user_id, "pro"):
+        await send_upgrade_message(update, "pro")
+        return
     raw = create_login_token(user_id, minutes=10)
     link = f"{FRONTEND_URL}/auth/telegram?t={raw}"
     await update.message.reply_text(f"📊 Open your dashboard:\n{link}")
@@ -758,6 +766,9 @@ async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 async def investments_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    if not check_plan(user_id, "pro"):
+        await send_upgrade_message(update, "pro")
+        return
     investments = get_investments(user_id)
     summary = get_investment_summary(user_id)
 
@@ -820,6 +831,9 @@ DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 
 async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    if not check_plan(user_id, "pro"):
+        await send_upgrade_message(update, "pro")
+        return
     args = context.args
 
     settings = get_notification_settings(user_id)
@@ -900,25 +914,53 @@ async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TY
 # ── /start onboarding ──────────────────────────────────────────────
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 *Welcome to Aura — your personal finance tracker!*\n\n"
-        "🎯 *Here's what I can do:*\n\n"
-        "💸 *Track spending* — just tell me what you spent:\n"
-        "   _\"spent 150 on lunch\"_ or _\"paid 500 for uber\"_\n\n"
-        "💰 *Track income* — log what you earned:\n"
-        "   _\"received 5000 salary\"_ or _\"got 200 freelance\"_\n\n"
-        "🎙 *Voice messages* — send a voice note and I'll transcribe it!\n\n"
-        "📊 *Commands:*\n"
-        "/summary — monthly overview\n"
-        "/history — recent transactions\n"
-        "/investments — investment portfolio\n"
-        "/budget food 3000 — set a budget\n"
-        "/dashboard — open web dashboard\n"
-        "/notifications — configure daily/weekly summaries\n"
-        "/help — all commands\n\n"
-        "✨ _Try sending your first expense now!_",
-        parse_mode="Markdown"
-    )
+    user_id = str(update.effective_user.id)
+
+    # Activate 7-day Pro trial for new users
+    trial_activated = activate_trial(user_id)
+
+    if trial_activated:
+        await update.message.reply_text(
+            "👋 *Welcome to Aura — your personal finance tracker!*\n\n"
+            "🎉 *You've got a 7-day free Pro trial!*\n"
+            "All premium features are unlocked — AI insights, investments, dashboard & more.\n\n"
+            "🎯 *Here's what I can do:*\n\n"
+            "💸 *Track spending* — just tell me what you spent:\n"
+            "   _\"spent 150 on lunch\"_ or _\"paid 500 for uber\"_\n\n"
+            "💰 *Track income* — log what you earned:\n"
+            "   _\"received 5000 salary\"_ or _\"got 200 freelance\"_\n\n"
+            "🎙 *Voice messages* — send a voice note and I'll transcribe it!\n\n"
+            "📊 *Commands:*\n"
+            "/summary — monthly overview\n"
+            "/history — recent transactions\n"
+            "/investments — investment portfolio ⭐\n"
+            "/budget food 3000 — set a budget\n"
+            "/dashboard — open web dashboard ⭐\n"
+            "/notifications — configure daily/weekly summaries ⭐\n"
+            "/help — all commands\n\n"
+            "✨ _Try sending your first expense now!_",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "👋 *Welcome back to Aura!*\n\n"
+            "🎯 *Here's what I can do:*\n\n"
+            "💸 *Track spending* — just tell me what you spent:\n"
+            "   _\"spent 150 on lunch\"_ or _\"paid 500 for uber\"_\n\n"
+            "💰 *Track income* — log what you earned:\n"
+            "   _\"received 5000 salary\"_ or _\"got 200 freelance\"_\n\n"
+            "🎙 *Voice messages* — send a voice note and I'll transcribe it!\n\n"
+            "📊 *Commands:*\n"
+            "/summary — monthly overview\n"
+            "/history — recent transactions\n"
+            "/investments — investment portfolio\n"
+            "/budget food 3000 — set a budget\n"
+            "/dashboard — open web dashboard\n"
+            "/notifications — configure daily/weekly summaries\n"
+            "/help — all commands\n\n"
+            "✨ _Try sending your first expense now!_",
+            parse_mode="Markdown"
+        )
 
 # ── /help command ─────────────────────────────────────────────────
 
@@ -994,7 +1036,7 @@ def main():
 
     # ── Start APScheduler ─────────────────────────────────────────
     from apscheduler.schedulers.background import BackgroundScheduler
-    from notifications import run_daily_check, run_weekly_check
+    from notifications import run_daily_check, run_weekly_check, run_trial_reminders
     from apscheduler.triggers.cron import CronTrigger
     from backup import run_backup
 
@@ -1006,6 +1048,14 @@ def main():
         run_backup,
         trigger=CronTrigger(hour=3, minute=0, timezone="Africa/Cairo"),
         id="daily_backup",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    # Trial expiry reminders — daily at 10am Cairo time
+    scheduler.add_job(
+        run_trial_reminders,
+        trigger=CronTrigger(hour=10, minute=0, timezone="Africa/Cairo"),
+        id="trial_reminders",
         replace_existing=True,
         misfire_grace_time=3600,
     )

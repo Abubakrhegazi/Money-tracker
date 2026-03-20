@@ -13,7 +13,8 @@ from database import (
     resolve_link_token, get_primary_id, get_recent_expenses,
     delete_expense, set_budget, get_budget,
     get_category_spending_this_month, Session, Expense,
-    save_pending, get_pending, delete_pending, is_new_user
+    save_pending, get_pending, delete_pending, is_new_user,
+    user_has_plan,
 )
 from collections import defaultdict
 from time import time
@@ -579,6 +580,14 @@ def webhook():
             if msg_id in _processed_messages:
                 return jsonify({"status": "ok"}), 200
             _processed_messages[msg_id] = now_ts
+
+        # WhatsApp access requires Pro plan
+        primary_id = get_primary_id(from_number)
+        if not user_has_plan(primary_id, "pro"):
+            send_message(from_number,
+                "WhatsApp access is available on Aura Pro → https://aurabot.website/upgrade"
+            )
+            return jsonify({"status": "ok"}), 200
 
         # Onboarding
         if is_new_user(from_number):

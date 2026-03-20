@@ -226,8 +226,8 @@ def generate_weekly_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | Non
 # ── Scheduler jobs ──────────────────────────────────────────────────────
 
 def run_daily_check():
-    """Hourly job: check each user's preferred time and send daily summary if due."""
-    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user
+    """Hourly job: check each user's preferred time and send daily summary if due. Skips Free users."""
+    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
 
     logger.info("Running daily notification check...")
     users = get_all_notification_users()
@@ -261,6 +261,10 @@ def run_daily_check():
         if is_new_user(u["user_id"]):
             continue
 
+        # Skip Free users (daily digest is a Pro feature)
+        if not user_has_plan(u["user_id"], "pro"):
+            continue
+
         # Generate and send
         try:
             summary = generate_daily_summary(u["user_id"], tz)
@@ -277,8 +281,8 @@ def run_daily_check():
 
 
 def run_weekly_check():
-    """Hourly job: check each user's preferred day/time and send weekly summary if due."""
-    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user
+    """Hourly job: check each user's preferred day/time and send weekly summary if due. Skips Free users."""
+    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
 
     logger.info("Running weekly notification check...")
     users = get_all_notification_users()
@@ -318,6 +322,10 @@ def run_weekly_check():
         if is_new_user(u["user_id"]):
             continue
 
+        # Skip Free users (weekly digest is a Pro feature)
+        if not user_has_plan(u["user_id"], "pro"):
+            continue
+
         try:
             summary = generate_weekly_summary(u["user_id"], tz)
             if summary:
@@ -330,3 +338,34 @@ def run_weekly_check():
         except Exception as e:
             logger.error(f"Error sending weekly to {u['user_id']}: {e}", exc_info=True)
             increment_notification_failure(u["user_id"])
+
+
+def run_trial_reminders():
+    """Daily job: send reminders to users whose trial is expiring soon."""
+    from database import get_trial_expiring_users
+
+    logger.info("Running trial reminder check...")
+
+    # Users whose trial ends in 2 days
+    for user_id in get_trial_expiring_users(2):
+        try:
+            send_telegram_message(
+                user_id,
+                "⏳ Your Aura Pro trial ends in 2 days! "
+                "Lock in your access at https://aurabot.website/upgrade"
+            )
+            logger.info(f"Trial 2-day reminder sent to {user_id}")
+        except Exception as e:
+            logger.error(f"Error sending trial reminder to {user_id}: {e}")
+
+    # Users whose trial ends today
+    for user_id in get_trial_expiring_users(0):
+        try:
+            send_telegram_message(
+                user_id,
+                "Your free trial ends today. Don't lose your AI insights "
+                "and investment tracking → https://aurabot.website/upgrade"
+            )
+            logger.info(f"Trial expiry reminder sent to {user_id}")
+        except Exception as e:
+            logger.error(f"Error sending trial expiry to {user_id}: {e}")

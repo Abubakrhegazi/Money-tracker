@@ -185,6 +185,11 @@ class UserSettings(Base):
     name = Column(String(100), nullable=True)
     main_currency = Column(String(10), default="EGP")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Subscription fields
+    plan = Column(String(10), default="free", nullable=False)  # free | pro | elite
+    plan_expires_at = Column(DateTime, nullable=True)  # null = no active paid plan
+    trial_ends_at = Column(DateTime, nullable=True)
+    paymob_order_id = Column(String(255), nullable=True)
 
 def init_db():
     try:
@@ -230,6 +235,20 @@ def init_db():
                 for col, col_type in new_inv_cols.items():
                     if col not in inv_cols:
                         conn.execute(text(f"ALTER TABLE investments ADD COLUMN {col} {col_type}"))
+        # Add subscription columns to user_settings if missing
+        if insp.has_table("user_settings"):
+            us_cols = [c["name"] for c in insp.get_columns("user_settings")]
+            sub_cols = {
+                "plan": "VARCHAR(10) DEFAULT 'free' NOT NULL",
+                "plan_expires_at": "TIMESTAMP",
+                "trial_ends_at": "TIMESTAMP",
+                "paymob_order_id": "VARCHAR(255)",
+            }
+            with engine.begin() as conn:
+                for col, col_type in sub_cols.items():
+                    if col not in us_cols:
+                        logger.info(f"[MIGRATION] Adding {col} column to user_settings")
+                        conn.execute(text(f"ALTER TABLE user_settings ADD COLUMN {col} {col_type}"))
         # Normalize legacy categories to fixed list
         VALID_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "other",
                       "salary", "freelance", "gift", "refund", "investment", "other_income"}
@@ -1304,6 +1323,162 @@ def get_all_trackable_investments() -> list:
             (Investment.forex_pair.isnot(None))
         ).all()
         return rows
+    finally:
+        session.close()
+
+
+# ── Subscription helpers ──────────────────────────────────────────────────
+
+PLAN_HIERARCHY = {"free": 0, "pro": 1, "elite": 2}
+
+
+def get_user_plan(user_id: str) -> dict:
+    """Return the user's current plan info. Treats active trial as 'pro'."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            return {"plan": "free", "plan_expires_at": None, "trial_ends_at": None, "is_trial": False}
+        now = datetime.utcnow()
+        plan = us.plan or "free"
+        is_trial = False
+        # If trial is still active, treat as pro
+        if us.trial_ends_at and us.trial_ends_at > now and plan == "free":
+            plan = "pro"
+            is_trial = True
+        # If paid plan expired, treat as free
+        if plan in ("pro", "elite") and us.plan_expires_at and us.plan_expires_at <= now and not is_trial:
+            plan = "free"
+        return {
+            "plan": plan,
+            "plan_expires_at": us.plan_expires_at.isoformat() if us.plan_expires_at else None,
+            "trial_ends_at": us.trial_ends_at.isoformat() if us.trial_ends_at else None,
+            "is_trial": is_trial,
+        }
+    finally:
+        session.close()
+
+
+def user_has_plan(user_id: str, min_plan: str) -> bool:
+    """Check if user meets the minimum plan requirement."""
+    info = get_user_plan(user_id)
+    return PLAN_HIERARCHY.get(info["plan"], 0) >= PLAN_HIERARCHY.get(min_plan, 0)
+
+
+def activate_trial(user_id: str) -> bool:
+    """Activate a 7-day Pro trial for a new user. Returns True if trial was set."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            us = UserSettings(
+                telegram_user_id=user_id,
+                plan="free",
+                trial_ends_at=datetime.utcnow() + timedelta(days=7),
+            )
+            session.add(us)
+            session.commit()
+            return True
+        # Only activate trial if user has never had one and is on free plan
+        if us.trial_ends_at is None and (us.plan or "free") == "free":
+            us.trial_ends_at = datetime.utcnow() + timedelta(days=7)
+            session.commit()
+            return True
+        return False
+    except Exception as e:
+        session.rollback()
+        logger.error(f"activate_trial failed for {user_id}: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def set_user_plan(user_id: str, plan: str, days: int) -> bool:
+    """Manually set a user's plan and expiry (admin use)."""
+    user_id = get_primary_id(user_id)
+    if plan not in ("free", "pro", "elite"):
+        return False
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            us = UserSettings(telegram_user_id=user_id)
+            session.add(us)
+        us.plan = plan
+        if plan == "free":
+            us.plan_expires_at = None
+        else:
+            us.plan_expires_at = datetime.utcnow() + timedelta(days=days)
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        logger.error(f"set_user_plan failed: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def upgrade_user_plan(user_id: str, plan: str, days: int) -> bool:
+    """Upgrade a user's plan after successful payment."""
+    user_id = get_primary_id(user_id)
+    if plan not in ("pro", "elite"):
+        return False
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            us = UserSettings(telegram_user_id=user_id)
+            session.add(us)
+        us.plan = plan
+        us.plan_expires_at = datetime.utcnow() + timedelta(days=days)
+        us.trial_ends_at = None  # Clear trial on paid upgrade
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        logger.error(f"upgrade_user_plan failed: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def set_paymob_order_id(user_id: str, order_id: str) -> bool:
+    """Store Paymob order ID for reconciliation."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        us = session.query(UserSettings).filter_by(telegram_user_id=user_id).first()
+        if not us:
+            us = UserSettings(telegram_user_id=user_id)
+            session.add(us)
+        us.paymob_order_id = order_id
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def get_trial_expiring_users(days_remaining: int) -> list:
+    """Return users whose trial expires in exactly `days_remaining` days."""
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        target_date = (now + timedelta(days=days_remaining)).date()
+        users = session.query(UserSettings).filter(
+            UserSettings.trial_ends_at.isnot(None),
+            UserSettings.plan == "free",  # still on free (not upgraded)
+        ).all()
+        result = []
+        for u in users:
+            if u.trial_ends_at and u.trial_ends_at.date() == target_date:
+                result.append(u.telegram_user_id)
+        return result
     finally:
         session.close()
 
