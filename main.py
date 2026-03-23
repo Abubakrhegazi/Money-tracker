@@ -707,9 +707,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if not check_plan(user_id, "pro"):
-        await send_upgrade_message(update, "pro")
-        return
     raw = create_login_token(user_id, minutes=10)
     link = f"{FRONTEND_URL}/auth/telegram?t={raw}"
     await update.message.reply_text(f"📊 Open your dashboard:\n{link}")
@@ -935,7 +932,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/history — recent transactions\n"
             "/investments — investment portfolio ⭐\n"
             "/budget food 3000 — set a budget\n"
-            "/dashboard — open web dashboard ⭐\n"
+            "/dashboard — open web dashboard\n"
             "/notifications — configure daily/weekly summaries ⭐\n"
             "/help — all commands\n\n"
             "✨ _Try sending your first expense now!_",
