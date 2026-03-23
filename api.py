@@ -466,21 +466,6 @@ async def telegram_link_auth(request: Request, body: TelegramLinkAuthBody):
     if not telegram_user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired link")
 
-    # Check if user has Pro+ plan for dashboard access
-    from database import user_has_plan, get_user_plan
-    if not user_has_plan(str(telegram_user_id), "pro"):
-        from subscription import send_upgrade_message_sync
-        send_upgrade_message_sync(str(telegram_user_id), "pro")
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "plan_required",
-                "required_plan": "pro",
-                "message": "Dashboard access requires Aura Pro.",
-                "upgrade_url": "https://aurabot.website/upgrade",
-            },
-        )
-
     token = create_jwt_token(str(telegram_user_id), "")
     return {"token": token}
 

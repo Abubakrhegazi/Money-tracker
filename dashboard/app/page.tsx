@@ -12,6 +12,10 @@ import {
   Shield,
   TrendingUp,
   LineChart,
+  Check,
+  Crown,
+  Star,
+  Sparkles,
 } from "lucide-react";
 import { setToken } from "@/lib/api";
 import { Particles } from "@/components/ui/particles";
@@ -316,6 +320,187 @@ export default function LandingPage() {
               </BlurFade>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── Pricing ── */}
+      <section id="pricing" className="py-24 px-4">
+        <div className="max-w-5xl mx-auto">
+          <BlurFade inView>
+            <div className="text-center mb-16">
+              <h2 className="text-3xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
+                Simple pricing
+              </h2>
+              <p className="text-gray-400 max-w-xl mx-auto">
+                Start free, upgrade when you need more. Try Pro free for 7 days.
+              </p>
+            </div>
+          </BlurFade>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Free */}
+            <BlurFade delay={0} inView>
+              <div className="relative rounded-2xl bg-[#0f0f1a] border border-white/5 p-8 flex flex-col h-full">
+                <div className="mb-6">
+                  <div className="w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center mb-4">
+                    <Zap className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white">Free</h3>
+                  <div className="mt-3 flex items-baseline gap-1">
+                    <span className="text-4xl font-bold text-white">0</span>
+                    <span className="text-gray-500">EGP / month</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Get started with the basics
+                  </p>
+                </div>
+
+                <ul className="space-y-3 flex-1 mb-8">
+                  {[
+                    "Manual expense & income logging",
+                    "Voice messages (Whisper AI)",
+                    "Basic monthly summary",
+                    "Up to 3 categories",
+                    "Telegram access",
+                    "Web dashboard access",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-sm text-gray-300">
+                      <Check className="w-4 h-4 text-violet-400 mt-0.5 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+
+                <a
+                  href="https://t.me/walletTrackinggBot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <button className="w-full py-3 rounded-xl border border-white/10 text-sm font-semibold text-white hover:bg-white/5 transition">
+                    Get Started
+                  </button>
+                </a>
+              </div>
+            </BlurFade>
+
+            {/* Pro — highlighted */}
+            <BlurFade delay={0.1} inView>
+              <MagicCard className="h-full rounded-2xl">
+                <div className="relative p-8 bg-[#0f0f1a] rounded-2xl flex flex-col h-full">
+                  <BorderBeam
+                    size={120}
+                    duration={8}
+                    colorFrom="#7c3aed"
+                    colorTo="#d946ef"
+                    borderWidth={1.5}
+                  />
+
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-11 h-11 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                        <Star className="w-5 h-5 text-violet-400" />
+                      </div>
+                      <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                        Most Popular
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Pro</h3>
+                    <div className="mt-3 flex items-baseline gap-1">
+                      <span className="text-4xl font-bold text-white">99</span>
+                      <span className="text-gray-500">EGP / month</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-2">
+                      7-day free trial included
+                    </p>
+                  </div>
+
+                  <ul className="space-y-3 flex-1 mb-8">
+                    {[
+                      "Everything in Free",
+                      "Unlimited categories",
+                      "AI spending analysis",
+                      "Daily & weekly digest notifications",
+                      "Investment tracking (stocks, crypto, gold, forex)",
+                      "Budget alerts",
+                      "WhatsApp channel access",
+                    ].map((item, i) => (
+                      <li key={i} className="flex items-start gap-2.5 text-sm text-gray-300">
+                        <Check className="w-4 h-4 text-violet-400 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <a
+                    href="https://t.me/walletTrackinggBot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <ShimmerButton
+                      className="w-full text-sm font-semibold py-3"
+                      background="rgba(124, 58, 237, 1)"
+                    >
+                      Start Free Trial
+                    </ShimmerButton>
+                  </a>
+                </div>
+              </MagicCard>
+            </BlurFade>
+
+            {/* Elite */}
+            <BlurFade delay={0.2} inView>
+              <div className="relative rounded-2xl bg-[#0f0f1a] border border-white/5 p-8 flex flex-col h-full">
+                <div className="mb-6">
+                  <div className="w-11 h-11 rounded-xl bg-fuchsia-500/10 flex items-center justify-center mb-4">
+                    <Crown className="w-5 h-5 text-fuchsia-400" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white">Elite</h3>
+                  <div className="mt-3 flex items-baseline gap-1">
+                    <span className="text-4xl font-bold text-white">199</span>
+                    <span className="text-gray-500">EGP / month</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-2">
+                    For power users
+                  </p>
+                </div>
+
+                <ul className="space-y-3 flex-1 mb-8">
+                  {[
+                    "Everything in Pro",
+                    "PDF report exports",
+                    "Multi-currency support (USD, EUR)",
+                    "Smart goal tracking",
+                    "Priority support",
+                    "Early access to new features",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-sm text-gray-300">
+                      <Check className="w-4 h-4 text-fuchsia-400 mt-0.5 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+
+                <a
+                  href="https://t.me/walletTrackinggBot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <button className="w-full py-3 rounded-xl border border-fuchsia-500/20 text-sm font-semibold text-white hover:bg-fuchsia-500/5 transition">
+                    Get Elite
+                  </button>
+                </a>
+              </div>
+            </BlurFade>
+          </div>
+
+          <BlurFade delay={0.3} inView>
+            <p className="text-center text-sm text-gray-600 mt-8">
+              Annual billing: 2 months free. All prices in EGP.
+            </p>
+          </BlurFade>
         </div>
       </section>
 

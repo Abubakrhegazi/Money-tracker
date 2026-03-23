@@ -139,4 +139,5 @@ export const api = {
     fetchWithAuthPatch(`/investments/${id}`, body),
   deleteInvestment: (id: string) => fetchWithAuthDelete(`/investments/${id}`),
   refreshInvestments: () => fetchWithAuthPost("/investments/refresh", {}),
+  getSubscription: () => fetchWithAuth("/subscription"),
 };

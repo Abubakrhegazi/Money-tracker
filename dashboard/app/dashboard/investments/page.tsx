@@ -10,7 +10,7 @@ import {
 import {
   LogOut, TrendingUp, Receipt, Target, Settings, ChevronDown,
   Trash2, Plus, X, Check, AlertTriangle, RefreshCw, BarChart2, List,
-  Coins, DollarSign, Building2, Briefcase, Pencil,
+  Coins, DollarSign, Building2, Briefcase, Pencil, Crown, ArrowRight,
 } from "lucide-react";
 
 /* ── Asset type config ─────────────────────────────────────── */
@@ -885,6 +885,7 @@ export default function InvestmentsPage() {
   const [viewMode, setViewMode] = useState<"table" | "chart">("table");
   const [editingInv, setEditingInv] = useState<any | null>(null);
   const [chartPeriod, setChartPeriod] = useState<string>("7d");
+  const [plan, setPlan] = useState<string | null>(null);
 
   const loadData = useCallback((period?: string) => {
     if (!getToken()) { router.push("/"); return; }
@@ -895,16 +896,26 @@ export default function InvestmentsPage() {
       .finally(() => setLoading(false));
   }, [router, chartPeriod]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    if (!getToken()) { router.push("/"); return; }
+    api.getSubscription()
+      .then((sub: { plan: string }) => setPlan(sub.plan))
+      .catch(() => setPlan("free"));
+  }, [router]);
+
+  useEffect(() => {
+    if (plan && plan !== "free" && plan !== null) loadData();
+    else if (plan === "free") setLoading(false);
+  }, [plan, loadData]);
 
   // Auto-refresh prices on page load
   useEffect(() => {
-    if (!getToken()) return;
+    if (!getToken() || !plan || plan === "free") return;
     (api as any).refreshInvestments()
       .then(() => api.getInvestments(chartPeriod))
       .then((d: any) => { setData(d); setLastRefresh(new Date()); })
       .catch(() => { /* silently fail */ });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePriceRefresh = async () => {
     setRefreshing(true);
@@ -926,9 +937,40 @@ export default function InvestmentsPage() {
     setDeletingId(null);
   };
 
-  if (loading) return (
+  if (loading || plan === null) return (
     <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+    </div>
+  );
+
+  if (plan === "free") return (
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
+      <div className="max-w-md w-full text-center">
+        <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mx-auto mb-6">
+          <Crown className="w-8 h-8 text-violet-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-2">Pro Feature</h2>
+        <p className="text-gray-400 text-sm leading-relaxed mb-2">
+          Investment tracking — stocks, crypto, gold, and forex with live prices — is available on Aura Pro.
+        </p>
+        <p className="text-gray-600 text-xs mb-8">Upgrade to track your portfolio and see real-time gains &amp; losses.</p>
+        <div className="space-y-3">
+          <a
+            href="https://t.me/walletTrackinggBot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm transition"
+          >
+            <Crown size={15} /> Upgrade to Pro — 99 EGP/mo
+          </a>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white text-sm transition"
+          >
+            Back to Dashboard <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 
