@@ -208,11 +208,7 @@ async def initiate_pro(user=Depends(_get_current_user)):
         logger.error(f"Paymob API error during initiate: {e}")
         raise HTTPException(status_code=502, detail={"error": "payment_gateway_error"})
 
-    redirect_url = (
-        f"https://accept.paymob.com/api/acceptance/iframes/"
-        f"{PAYMOB_IFRAME_ID}?payment_token={payment_key}"
-    )
-    return {"redirect_url": redirect_url}
+    return {"redirect_url": f"https://accept.paymob.com/invoices/payment/{payment_key}"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -343,10 +339,7 @@ async def initiate_payment_legacy(body: PaymentInitiateBody):
         raise HTTPException(status_code=502, detail="Payment gateway error")
 
     return {
-        "payment_url": (
-            f"https://accept.paymob.com/api/acceptance/iframes/"
-            f"{PAYMOB_IFRAME_ID}?payment_token={payment_key}"
-        ),
+        "payment_url": f"https://accept.paymob.com/invoices/payment/{payment_key}",
         "order_id": order_id,
     }
 
