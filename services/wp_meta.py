@@ -7,8 +7,11 @@ import traceback
 import requests
 from flask import Flask, request, jsonify
 from groq import Groq
-from dotenv import load_dotenv
-from database import (
+from core.config import (
+    GROQ_API_KEY, META_WHATSAPP_TOKEN, META_PHONE_NUMBER_ID,
+    META_VERIFY_TOKEN, API_URL as _API_URL, DASHBOARD_URL, PORT,
+)
+from core.database import (
     init_db, save_expense, get_monthly_summary_sync,
     resolve_link_token, get_primary_id, get_recent_expenses,
     delete_expense, set_budget, get_budget,
@@ -26,14 +29,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-load_dotenv()
-
 app = Flask(__name__)
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-META_TOKEN = os.getenv("META_WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN")
+META_TOKEN = META_WHATSAPP_TOKEN
+PHONE_NUMBER_ID = META_PHONE_NUMBER_ID
+VERIFY_TOKEN = META_VERIFY_TOKEN
 API_URL_META = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
 
 # Rate limiter
@@ -319,7 +320,7 @@ def transcribe_audio(audio_url: str) -> str:
 
 
 def create_login_token(phone: str) -> str:
-    api_url = os.getenv("API_URL")
+    api_url = _API_URL
     response = requests.post(f"{api_url}/auth/whatsapp-token?phone={phone}")
     data = response.json()
     if "token" not in data:
@@ -509,7 +510,7 @@ def handle_budget_interactive(phone: str):
 def handle_budget_set(phone: str, args: str):
     parts = args.strip().split()
     if len(parts) == 2 and parts[0].lower() == "remove":
-        from database import delete_budget
+        from core.database import delete_budget
         user_id = get_primary_id(phone)
         category = parts[1].lower()
         if category not in CATEGORIES:
@@ -860,7 +861,7 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
                 handle_budget_set(from_number, args)
         elif cmd == "/login":
             token = create_login_token(from_number)
-            dashboard_url = os.getenv("DASHBOARD_URL", "https://moneybot-beta.vercel.app")
+            dashboard_url = DASHBOARD_URL
             send_message(from_number,
                 f"🔐 Tap to open your dashboard:\n\n"
                 f"{dashboard_url}/auth/whatsapp?token={token}\n\n"
@@ -908,4 +909,4 @@ If not a receipt, return {"error": "not_a_receipt"}"""},
 
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False)

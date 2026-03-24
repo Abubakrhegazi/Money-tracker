@@ -4,20 +4,16 @@ Notification engine — generates daily/weekly spending summaries and sends them
 Runs as hourly jobs inside APScheduler, embedded in the Telegram bot process (main.py).
 """
 import logging
-import os
 import traceback
 from datetime import datetime, timedelta
 from collections import Counter
 
 import pytz
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from core.config import TELEGRAM_BOT_TOKEN
 
 logger = logging.getLogger("notifications")
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 CATEGORY_EMOJI = {
     "food": "🍔", "transport": "🚗", "shopping": "🛍️",
     "bills": "📄", "entertainment": "🎬", "health": "💊",
@@ -49,7 +45,7 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown")
 
 def generate_daily_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None:
     """Generate a daily spending summary message. Returns None if no transactions."""
-    from database import get_daily_transactions, get_budget
+    from core.database import get_daily_transactions, get_budget
 
     now_local = datetime.now(user_tz)
     today_utc = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -91,7 +87,7 @@ def generate_daily_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None
     budgets = get_budget(user_id)
     if budgets:
         msg += "\n"
-        from database import get_category_spending_this_month
+        from core.database import get_category_spending_this_month
         for cat, budget_limit in budgets.items():
             cat_spent = get_category_spending_this_month(user_id, cat)
             pct = (cat_spent / budget_limit * 100) if budget_limit > 0 else 0
@@ -105,7 +101,7 @@ def generate_daily_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None
 
     # Investments summary
     try:
-        from database import get_investment_summary
+        from core.database import get_investment_summary
         inv_summary = get_investment_summary(user_id)
         if inv_summary["total_invested"] > 0:
             msg += f"\n💹 *Investments:* {inv_summary['total_invested']:,.0f} EGP invested"
@@ -120,7 +116,7 @@ def generate_daily_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None
 
 def generate_weekly_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | None:
     """Generate a weekly spending summary message."""
-    from database import get_weekly_transactions, get_budget
+    from core.database import get_weekly_transactions, get_budget
 
     now_local = datetime.now(user_tz)
     # Last 7 days
@@ -208,7 +204,7 @@ def generate_weekly_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | Non
 
     # Investments summary
     try:
-        from database import get_investment_summary
+        from core.database import get_investment_summary
         inv_summary = get_investment_summary(user_id)
         if inv_summary["total_invested"] > 0:
             msg += f"\n💹 *Investments:* {inv_summary['total_invested']:,.0f} EGP invested"
@@ -227,7 +223,7 @@ def generate_weekly_summary(user_id: str, user_tz: pytz.BaseTzInfo) -> str | Non
 
 def run_daily_check():
     """Hourly job: check each user's preferred time and send daily summary if due. Skips Free users."""
-    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
+    from core.database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
 
     logger.info("Running daily notification check...")
     users = get_all_notification_users()
@@ -282,7 +278,7 @@ def run_daily_check():
 
 def run_weekly_check():
     """Hourly job: check each user's preferred day/time and send weekly summary if due. Skips Free users."""
-    from database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
+    from core.database import get_all_notification_users, mark_notification_sent, increment_notification_failure, is_new_user, user_has_plan
 
     logger.info("Running weekly notification check...")
     users = get_all_notification_users()
@@ -342,7 +338,7 @@ def run_weekly_check():
 
 def run_trial_reminders():
     """Daily job: send reminders to users whose trial is expiring soon."""
-    from database import get_trial_expiring_users
+    from core.database import get_trial_expiring_users
 
     logger.info("Running trial reminder check...")
 
@@ -373,7 +369,7 @@ def run_trial_reminders():
 
 def run_subscription_expiry():
     """Daily job: expire Pro/Elite subscriptions whose plan_expires_at has passed."""
-    from database import Session, UserSettings
+    from core.database import Session, UserSettings
     from datetime import datetime
 
     logger.info("Running subscription expiry check...")

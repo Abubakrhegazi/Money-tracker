@@ -4,14 +4,14 @@ import re
 import signal
 import logging
 from groq import Groq
-from database import (
+from core.database import (
     init_db, save_expense, get_monthly_summary, get_recent_expenses,
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
     get_notification_settings, update_notification_settings, delete_user_data,
     get_link_token, save_investment, get_investments, get_investment_summary,
     activate_trial, get_user_plan,
 )
-from subscription import check_plan, send_upgrade_message
+from services.subscription import check_plan, send_upgrade_message
 from datetime import datetime
 
 FRONTEND_URL = "https://aurabot.website"
@@ -286,7 +286,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             price_per_unit = None
             live_price_note = ""
             try:
-                from price_fetcher import (
+                from services.price_fetcher import (
                     get_gold_price_per_gram_egp, get_stock_price_egp,
                     get_crypto_price_egp, normalize_coin_id, get_egp_rate
                 )
@@ -1033,9 +1033,9 @@ def main():
 
     # ── Start APScheduler ─────────────────────────────────────────
     from apscheduler.schedulers.background import BackgroundScheduler
-    from notifications import run_daily_check, run_weekly_check, run_trial_reminders, run_subscription_expiry
+    from services.notifications import run_daily_check, run_weekly_check, run_trial_reminders, run_subscription_expiry
     from apscheduler.triggers.cron import CronTrigger
-    from backup import run_backup
+    from services.backup import run_backup
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_daily_check, "interval", hours=1, id="daily_check",
@@ -1066,7 +1066,7 @@ def main():
     )
     # Price refresh every 6 hours
     try:
-        from price_fetcher import refresh_all_investment_prices
+        from services.price_fetcher import refresh_all_investment_prices
         scheduler.add_job(
             refresh_all_investment_prices,
             "interval", hours=6,

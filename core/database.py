@@ -1,4 +1,3 @@
-import os
 import logging
 import uuid
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, extract, Boolean, UniqueConstraint, Text, Index
@@ -8,12 +7,13 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 
+from core.config import DATABASE_URL as _RAW_DB_URL
+
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///spending_tracker.db")
-
+DATABASE_URL = _RAW_DB_URL
 # Railway PostgreSQL URLs start with postgres:// but SQLAlchemy needs postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)

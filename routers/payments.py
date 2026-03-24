@@ -10,34 +10,28 @@ Endpoints:
 import hashlib
 import hmac
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import BaseModel
 
-from database import (
+from core.config import (
+    PAYMOB_API_KEY, PAYMOB_INTEGRATION_ID, PAYMOB_IFRAME_ID,
+    PAYMOB_HMAC_SECRET, JWT_SECRET, FRONTEND_URL,
+)
+from core.database import (
     get_primary_id, set_paymob_order_id, upgrade_user_plan,
     get_user_settings, Session, UserSettings, get_user_plan,
 )
-from notifications import send_telegram_message
+from services.notifications import send_telegram_message
 
-load_dotenv()
 logger = logging.getLogger("payments")
 
 router = APIRouter(prefix="/payments", tags=["payments"])
-
-PAYMOB_API_KEY      = os.getenv("PAYMOB_API_KEY", "")
-PAYMOB_INTEGRATION_ID = os.getenv("PAYMOB_INTEGRATION_ID", "")
-PAYMOB_IFRAME_ID    = os.getenv("PAYMOB_IFRAME_ID", "")
-PAYMOB_HMAC_SECRET  = os.getenv("PAYMOB_HMAC_SECRET", "")
-JWT_SECRET          = os.getenv("JWT_SECRET", "")
-FRONTEND_URL        = os.getenv("FRONTEND_URL", "https://aurabot.website")
 
 PRO_AMOUNT_PIASTERS = 9900  # 99 EGP
 

@@ -13,14 +13,12 @@ from datetime import datetime, timedelta
 import boto3
 from botocore.client import Config
 
-logger = logging.getLogger("backup")
+from core.config import (
+    R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+    R2_BUCKET, DATABASE_URL, BACKUP_RETENTION_DAYS,
+)
 
-R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
-R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
-R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET = os.getenv("R2_BUCKET", "wallet-backups")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
+logger = logging.getLogger("backup")
 
 
 def _r2_configured() -> bool:

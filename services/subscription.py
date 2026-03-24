@@ -14,7 +14,7 @@ Usage (Telegram bot):
 import logging
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from database import user_has_plan, PLAN_HIERARCHY
+from core.database import user_has_plan, PLAN_HIERARCHY
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ async def send_upgrade_message(update, min_plan: str = "pro"):
 
 def send_upgrade_message_sync(chat_id: str, min_plan: str = "pro") -> bool:
     """Send upgrade prompt via Telegram Bot API (for use outside async context)."""
-    from notifications import send_telegram_message
+    from services.notifications import send_telegram_message
     plan_label = PLAN_NAMES.get(min_plan, min_plan.title())
     return send_telegram_message(
         chat_id,

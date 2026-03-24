@@ -20,7 +20,11 @@ from typing import Optional
 import csv
 import io
 
-from database import (
+from core.config import (
+    ADMIN_JWT_SECRET as _ADMIN_JWT_SECRET,
+    ADMIN_USERNAME, ADMIN_PASSWORD_HASH, ADMIN_SESSION_EXPIRY, ADMIN_SECRET,
+)
+from core.database import (
     get_all_users_admin, get_user_detail_admin, get_all_transactions_admin,
     get_global_stats, delete_user_data, log_admin_action, get_audit_log,
     create_admin_session, validate_admin_session, revoke_admin_session,
@@ -29,14 +33,12 @@ from database import (
 
 router = APIRouter()
 
-ADMIN_JWT_SECRET = os.getenv("ADMIN_JWT_SECRET", "")
+ADMIN_JWT_SECRET = _ADMIN_JWT_SECRET
 if not ADMIN_JWT_SECRET:
     import secrets as _s
     ADMIN_JWT_SECRET = _s.token_hex(32)
     print("[WARNING] ADMIN_JWT_SECRET not set — using random ephemeral secret.")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
-SESSION_EXPIRY = int(os.getenv("ADMIN_SESSION_EXPIRY", "1800"))
+SESSION_EXPIRY = ADMIN_SESSION_EXPIRY
 
 # ── Rate limiting for login ──────────────────────────────────────────────
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -365,7 +367,7 @@ async def env_config(admin: str = Depends(get_current_admin)):
 
 # ── Subscription management ──────────────────────────────────────────────
 
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+# ADMIN_SECRET imported from core.config above
 
 class SetPlanBody(BaseModel):
     telegram_id: str
@@ -387,7 +389,7 @@ async def admin_set_plan(request: Request, body: SetPlanBody):
     if body.days < 1 or body.days > 3650:
         raise HTTPException(status_code=400, detail="Days must be between 1 and 3650")
 
-    from database import set_user_plan
+    from core.database import set_user_plan
     success = set_user_plan(body.telegram_id, body.plan, body.days)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to set plan")

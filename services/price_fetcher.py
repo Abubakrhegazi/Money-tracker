@@ -11,13 +11,12 @@ All functions return float (price in EGP) or raise an exception.
 Callers should always catch exceptions and fall back to last stored price.
 """
 
-import os
 import logging
 import requests
 
-logger = logging.getLogger("price_fetcher")
+from core.config import GOLD_API_KEY
 
-GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
+logger = logging.getLogger("price_fetcher")
 _TROY_OZ_TO_GRAM = 31.1035  # 1 troy oz = 31.1035 grams
 
 # ── Forex ─────────────────────────────────────────────────────────────────
@@ -391,7 +390,7 @@ def refresh_all_investment_prices():
     Fetches latest prices for all trackable investments and updates the DB.
     Called by APScheduler every 6 hours and by POST /investments/refresh.
     """
-    from database import get_all_trackable_investments, update_investment_price, record_price_history
+    from core.database import get_all_trackable_investments, update_investment_price, record_price_history
 
     investments = get_all_trackable_investments()
     if not investments:
@@ -450,7 +449,7 @@ def refresh_all_investment_prices():
 
 def refresh_user_investment_prices(user_id: str):
     """Refresh prices for a single user's investments only."""
-    from database import get_investments, update_investment_price, record_price_history
+    from core.database import get_investments, update_investment_price, record_price_history
 
     investments = get_investments(user_id)
     updated = 0

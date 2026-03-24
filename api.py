@@ -10,12 +10,11 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
-import os
 from pydantic import BaseModel, Field
 import secrets
 import re
-from dotenv import load_dotenv
-from database import (
+from core.config import TELEGRAM_BOT_TOKEN, JWT_SECRET as _JWT_SECRET, INTERNAL_API_KEY
+from core.database import (
     Session, Expense, get_monthly_summary, consume_login_token, create_login_token,
     init_db, set_budget, get_budget, delete_expense, delete_budget,
     get_notification_settings, update_notification_settings, delete_user_data, engine,
@@ -24,8 +23,8 @@ from database import (
     get_user_settings, update_user_settings,
 )
 from sqlalchemy import extract, text
-from backup import run_backup as trigger_backup, get_last_backup_time
-from subscription import require_plan
+from services.backup import run_backup as trigger_backup, get_last_backup_time
+from services.subscription import require_plan
 
 # ── Structured logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -40,8 +39,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-load_dotenv()
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
@@ -51,13 +48,12 @@ app = FastAPI(lifespan=lifespan)
 security = HTTPBearer()
 
 # ── Secrets ───────────────────────────────────────────────────────────────
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-JWT_SECRET = os.getenv("JWT_SECRET", "")
+BOT_TOKEN = TELEGRAM_BOT_TOKEN
+JWT_SECRET = _JWT_SECRET
 if not JWT_SECRET:
     import secrets as _s
     JWT_SECRET = _s.token_hex(32)
     logger.warning("JWT_SECRET not set — using random ephemeral secret. Set JWT_SECRET env var for production!")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 _start_time = time.time()
 
@@ -81,12 +77,16 @@ app.add_middleware(
 )
 
 # ── Admin router ─────────────────────────────────────────────────────────
-from admin_api import router as admin_router
+from routers.admin import router as admin_router
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 
 # ── Payments router ──────────────────────────────────────────────────────
-from payments import router as payments_router
+from routers.payments import router as payments_router
 app.include_router(payments_router)
+
+# ── WhatsApp webhook router ─────────────────────────────────────────────
+from routers.whatsapp import router as whatsapp_router
+app.include_router(whatsapp_router)
 
 # ── Security headers middleware ──────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -446,7 +446,7 @@ async def update_settings(request: Request, body: UserSettingsBody, user=Depends
 @limiter.limit("60/minute")
 async def get_subscription(request: Request, user=Depends(get_current_user)):
     """Return the user's current subscription plan info."""
-    from database import get_user_plan
+    from core.database import get_user_plan
     return get_user_plan(user["sub"])
 
 # ── test-token endpoint REMOVED (was a security risk) ────────────────
@@ -523,7 +523,7 @@ class UpdateInvestmentBody(BaseModel):
 @limiter.limit("20/minute")
 async def check_ticker(request: Request, symbol: str, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     """Validate a stock ticker and return its current price in EGP."""
-    from price_fetcher import get_stock_price_egp
+    from services.price_fetcher import get_stock_price_egp
     symbol = symbol.strip().upper()
     if not symbol or len(symbol) > 15 or not re.match(r'^[A-Z0-9.\-]{1,15}$', symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
@@ -591,7 +591,7 @@ async def get_user_investments(request: Request, period: str = "7d", user=Depend
     egp_rate = 1.0
     if display_currency != "EGP":
         try:
-            from price_fetcher import get_egp_rate
+            from services.price_fetcher import get_egp_rate
             egp_rate = get_egp_rate(display_currency)  # 1 display_currency = X EGP
         except Exception:
             egp_rate = 1.0
@@ -619,7 +619,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
     price_per_unit = body.price_per_unit
     if body.asset_type == "currency" and body.forex_pair and not price_per_unit:
         try:
-            from price_fetcher import get_egp_rate
+            from services.price_fetcher import get_egp_rate
             price_per_unit = get_egp_rate(body.forex_pair.upper())
         except Exception:
             price_per_unit = None
@@ -627,7 +627,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
     amount_invested = body.amount_invested
     if body.asset_type == "gold" and amount_invested == 0 and body.grams:
         try:
-            from price_fetcher import get_gold_price_per_gram_egp
+            from services.price_fetcher import get_gold_price_per_gram_egp
             price_per_gram_24k = get_gold_price_per_gram_egp()
             karat_factor = (body.karat / 24) if body.karat else 1.0
             amount_invested = round(body.grams * price_per_gram_24k * karat_factor, 2)
@@ -636,7 +636,7 @@ async def create_investment(request: Request, body: InvestmentBody, user=Depends
     # Convert amount to EGP if in a foreign currency
     if body.currency and body.currency.upper() != "EGP" and amount_invested > 0:
         try:
-            from price_fetcher import get_egp_rate
+            from services.price_fetcher import get_egp_rate
             rate = get_egp_rate(body.currency.upper())
             amount_invested = round(amount_invested * rate, 2)
         except Exception:
@@ -685,7 +685,7 @@ async def delete_investment_api(request: Request, investment_id: str, user=Depen
 async def refresh_investment_prices(request: Request, user=Depends(get_current_user), _=Depends(require_plan("pro"))):
     """Trigger an immediate price refresh for the authenticated user's portfolio."""
     try:
-        from price_fetcher import refresh_user_investment_prices
+        from services.price_fetcher import refresh_user_investment_prices
         result = refresh_user_investment_prices(user["sub"])
         return {"status": "ok", **result}
     except Exception as e:
