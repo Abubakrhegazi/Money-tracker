@@ -208,7 +208,7 @@ async def initiate_pro(user=Depends(_get_current_user)):
         logger.error(f"Paymob API error during initiate: {e}")
         raise HTTPException(status_code=502, detail={"error": "payment_gateway_error"})
 
-    return {"redirect_url": f"https://accept.paymob.com/invoices/payment/{payment_key}"}
+    return {"redirect_url": f"https://accept.paymob.com/api/acceptance/payments/pay?payment_token={payment_key}"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
