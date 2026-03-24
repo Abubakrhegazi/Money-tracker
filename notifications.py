@@ -369,3 +369,39 @@ def run_trial_reminders():
             logger.info(f"Trial expiry reminder sent to {user_id}")
         except Exception as e:
             logger.error(f"Error sending trial expiry to {user_id}: {e}")
+
+
+def run_subscription_expiry():
+    """Daily job: expire Pro/Elite subscriptions whose plan_expires_at has passed."""
+    from database import Session, UserSettings
+    from datetime import datetime
+
+    logger.info("Running subscription expiry check...")
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        expired = (
+            session.query(UserSettings)
+            .filter(
+                UserSettings.plan.in_(("pro", "elite")),
+                UserSettings.plan_expires_at.isnot(None),
+                UserSettings.plan_expires_at < now,
+            )
+            .all()
+        )
+        for us in expired:
+            try:
+                us.plan = "free"
+                us.plan_expires_at = None
+                session.commit()
+                send_telegram_message(
+                    us.telegram_user_id,
+                    "⚠️ Your Aura Pro subscription has expired.\n"
+                    "Renew at https://aurabot.website/dashboard/investments"
+                )
+                logger.info(f"Subscription expired for user {us.telegram_user_id}")
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Error expiring subscription for {us.telegram_user_id}: {e}")
+    finally:
+        session.close()

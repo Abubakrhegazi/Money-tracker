@@ -1033,7 +1033,7 @@ def main():
 
     # ── Start APScheduler ─────────────────────────────────────────
     from apscheduler.schedulers.background import BackgroundScheduler
-    from notifications import run_daily_check, run_weekly_check, run_trial_reminders
+    from notifications import run_daily_check, run_weekly_check, run_trial_reminders, run_subscription_expiry
     from apscheduler.triggers.cron import CronTrigger
     from backup import run_backup
 
@@ -1053,6 +1053,14 @@ def main():
         run_trial_reminders,
         trigger=CronTrigger(hour=10, minute=0, timezone="Africa/Cairo"),
         id="trial_reminders",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    # Subscription expiry — daily at 9am Cairo time
+    scheduler.add_job(
+        run_subscription_expiry,
+        trigger=CronTrigger(hour=9, minute=0, timezone="Africa/Cairo"),
+        id="subscription_expiry",
         replace_existing=True,
         misfire_grace_time=3600,
     )

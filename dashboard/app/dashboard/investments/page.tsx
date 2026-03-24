@@ -886,6 +886,8 @@ export default function InvestmentsPage() {
   const [editingInv, setEditingInv] = useState<any | null>(null);
   const [chartPeriod, setChartPeriod] = useState<string>("7d");
   const [plan, setPlan] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [paymentBanner, setPaymentBanner] = useState<"success" | "failed" | null>(null);
 
   const loadData = useCallback((period?: string) => {
     if (!getToken()) { router.push("/"); return; }
@@ -898,6 +900,14 @@ export default function InvestmentsPage() {
 
   useEffect(() => {
     if (!getToken()) { router.push("/"); return; }
+    // Read ?payment= query param
+    const params = new URLSearchParams(window.location.search);
+    const p = params.get("payment");
+    if (p === "success" || p === "failed") {
+      setPaymentBanner(p);
+      // Clean the query param from the URL without reloading
+      window.history.replaceState({}, "", window.location.pathname);
+    }
     api.getSubscription()
       .then((sub: { plan: string }) => setPlan(sub.plan))
       .catch(() => setPlan("free"));
@@ -916,6 +926,19 @@ export default function InvestmentsPage() {
       .then((d: any) => { setData(d); setLastRefresh(new Date()); })
       .catch(() => { /* silently fail */ });
   }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUpgrade = async () => {
+    setUpgrading(true);
+    try {
+      const res = await api.initiatePayment();
+      if (res.already_pro) { setPlan("pro"); return; }
+      if (res.redirect_url) window.location.href = res.redirect_url;
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setUpgrading(false);
+    }
+  };
 
   const handlePriceRefresh = async () => {
     setRefreshing(true);
@@ -944,7 +967,14 @@ export default function InvestmentsPage() {
   );
 
   if (plan === "free") return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center px-4">
+      {/* Payment result banner */}
+      {paymentBanner === "failed" && (
+        <div className="mb-6 w-full max-w-md bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-rose-400 text-sm text-center">
+          Payment failed. Please try again.
+        </div>
+      )}
+
       <div className="max-w-md w-full text-center">
         <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mx-auto mb-6">
           <Crown className="w-8 h-8 text-violet-400" />
@@ -955,14 +985,20 @@ export default function InvestmentsPage() {
         </p>
         <p className="text-gray-600 text-xs mb-8">Upgrade to track your portfolio and see real-time gains &amp; losses.</p>
         <div className="space-y-3">
-          <a
-            href="https://t.me/walletTrackinggBot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm transition"
+          <button
+            onClick={handleUpgrade}
+            disabled={upgrading}
+            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white font-semibold text-sm transition"
           >
-            <Crown size={15} /> Upgrade to Pro — 99 EGP/mo
-          </a>
+            {upgrading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Redirecting to payment...
+              </>
+            ) : (
+              <><Crown size={15} /> Upgrade to Pro — 99 EGP/mo</>
+            )}
+          </button>
           <button
             onClick={() => router.push("/dashboard")}
             className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white text-sm transition"
@@ -1042,6 +1078,14 @@ export default function InvestmentsPage() {
         </aside>
 
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+          {/* Payment success banner */}
+          {paymentBanner === "success" && (
+            <div className="mx-4 md:mx-6 mt-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 flex items-center justify-between">
+              <span className="text-emerald-400 text-sm font-medium">🎉 Welcome to Aura Pro! Your investments dashboard is now unlocked.</span>
+              <button onClick={() => setPaymentBanner(null)} className="text-emerald-600 hover:text-emerald-400 ml-4 text-lg leading-none">&times;</button>
+            </div>
+          )}
+
           {/* Header */}
           <header className="sticky top-0 z-10 backdrop-blur-xl bg-[#0a0a0f]/80 border-b border-white/5 px-4 md:px-6 py-4 flex justify-between items-center">
             <div>
