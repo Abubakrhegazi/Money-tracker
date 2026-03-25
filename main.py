@@ -34,7 +34,10 @@ logging.basicConfig(
 logger = logging.getLogger("bot")
 
 load_dotenv()
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_groq_api_key = os.getenv("GROQ_API_KEY")
+if not _groq_api_key:
+    raise RuntimeError("GROQ_API_KEY environment variable is not set")
+groq_client = Groq(api_key=_groq_api_key)
 
 # Conversation states
 WAITING_FOR_EDIT = 1

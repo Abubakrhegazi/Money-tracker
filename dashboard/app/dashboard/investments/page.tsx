@@ -967,44 +967,136 @@ export default function InvestmentsPage() {
   );
 
   if (plan === "free") return (
-    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center px-4">
-      {/* Payment result banner */}
-      {paymentBanner === "failed" && (
-        <div className="mb-6 w-full max-w-md bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-rose-400 text-sm text-center">
-          Payment failed. Please try again.
+    <div className="min-h-screen bg-[#0a0a0f] relative overflow-hidden">
+      {/* Blurred fake background */}
+      <div className="absolute inset-0 pointer-events-none select-none blur-[2px] opacity-40">
+        <div className="p-6 space-y-4">
+          {/* Fake stat cards */}
+          <div className="grid grid-cols-3 gap-4">
+            {[["Total Value", "162,300", "EGP"], ["Invested", "71,200", "EGP"], ["Total Gain", "+91,100", "EGP"]].map(([l, v, s]) => (
+              <div key={l} className="bg-[#12121a] border border-white/5 rounded-2xl p-5">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">{l}</p>
+                <p className="text-3xl font-bold text-white">{v}</p>
+                <p className="text-xs text-gray-600 mt-1">{s}</p>
+              </div>
+            ))}
+          </div>
+          {/* Fake chart area */}
+          <div className="bg-[#12121a] border border-white/5 rounded-2xl p-5 h-52 flex items-end gap-2 overflow-hidden">
+            {[40, 55, 45, 70, 60, 80, 75, 90, 85, 100, 92, 110].map((h, i) => (
+              <div key={i} className="flex-1 rounded-t" style={{ height: `${h}%`, background: i % 3 === 0 ? "#6366f1" : i % 3 === 1 ? "#f97316" : "#eab308", opacity: 0.6 }} />
+            ))}
+          </div>
+          {/* Fake investment rows */}
+          <div className="bg-[#12121a] border border-white/5 rounded-2xl p-5 space-y-3">
+            {[["Bitcoin", "₿ Crypto", "#f97316", "42,000"], ["Gold 21k", "🥇 Gold", "#eab308", "35,000"], ["Apple", "📈 Stocks", "#6366f1", "28,500"]].map(([name, type, color, val]) => (
+              <div key={name} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs" style={{ background: `${color}22`, color }}>{type.charAt(0)}</div>
+                  <div>
+                    <p className="text-sm text-white font-medium">{name}</p>
+                    <p className="text-xs text-gray-500">{type}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-white font-semibold">{val} EGP</p>
+              </div>
+            ))}
+          </div>
         </div>
-      )}
+      </div>
 
-      <div className="max-w-md w-full text-center">
-        <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mx-auto mb-6">
-          <Crown className="w-8 h-8 text-violet-400" />
-        </div>
-        <h2 className="text-2xl font-bold text-white mb-2">Pro Feature</h2>
-        <p className="text-gray-400 text-sm leading-relaxed mb-2">
-          Investment tracking — stocks, crypto, gold, and forex with live prices — is available on Aura Pro.
-        </p>
-        <p className="text-gray-600 text-xs mb-8">Upgrade to track your portfolio and see real-time gains &amp; losses.</p>
-        <div className="space-y-3">
-          <button
-            onClick={handleUpgrade}
-            disabled={upgrading}
-            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white font-semibold text-sm transition"
-          >
-            {upgrading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Redirecting to payment...
-              </>
-            ) : (
-              <><Crown size={15} /> Upgrade to Pro — 99 EGP/mo</>
-            )}
-          </button>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white text-sm transition"
-          >
-            Back to Dashboard <ArrowRight size={14} />
-          </button>
+      {/* Dark overlay */}
+      <div className="absolute inset-0 bg-[#0a0a0f]/70" />
+
+      {/* Paywall card */}
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 py-8">
+        {paymentBanner === "failed" && (
+          <div className="mb-5 w-full max-w-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-rose-400 text-sm text-center">
+            Payment failed. Please try again.
+          </div>
+        )}
+
+        <div className="max-w-sm w-full">
+          {/* PRO FEATURE badge */}
+          <div className="flex justify-center mb-5">
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-400 text-xs font-semibold tracking-wide">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400" /> PRO FEATURE
+            </span>
+          </div>
+
+          {/* Heading */}
+          <h2 className="text-3xl font-bold text-white leading-tight mb-3">
+            Your portfolio,<br />
+            <span className="text-violet-400">live &amp; tracked</span>
+          </h2>
+
+          {/* Subtext */}
+          <p className="text-gray-400 text-sm leading-relaxed mb-6">
+            Stocks, crypto, gold, forex — all in one place with live Egyptian prices.
+            Upgrade to unlock the full dashboard.
+          </p>
+
+          {/* Feature pills */}
+          <div className="flex flex-wrap gap-2 mb-7">
+            {[
+              { label: "Gold live price", color: "#f97316" },
+              { label: "Crypto", color: "#f97316" },
+              { label: "Stocks", color: "#06b6d4" },
+              { label: "Forex", color: "#10b981" },
+              { label: "Daily reports", color: "#8b5cf6" },
+            ].map(({ label, color }) => (
+              <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-gray-300 text-xs">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+                {label}
+              </span>
+            ))}
+          </div>
+
+          {/* Price row */}
+          <div className="flex items-center gap-3 mb-6">
+            <span className="text-4xl font-bold text-white">99</span>
+            <span className="text-gray-400 text-sm">EGP/mo</span>
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">7-day free trial</span>
+            <span className="text-gray-600 text-xs ml-auto">Cancel anytime</span>
+          </div>
+
+          {/* Buttons */}
+          <div className="space-y-3 mb-7">
+            <button
+              onClick={handleUpgrade}
+              disabled={upgrading}
+              className="flex items-center justify-center gap-2 w-full py-3.5 px-6 rounded-xl bg-white hover:bg-gray-100 disabled:opacity-60 text-black font-semibold text-sm transition"
+            >
+              {upgrading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+                  Redirecting to payment...
+                </>
+              ) : (
+                <><span>★</span> Unlock Pro — Start Free Trial</>
+              )}
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="flex items-center justify-center gap-2 w-full py-3.5 px-6 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white text-sm transition"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+
+          {/* Social proof */}
+          <div className="flex items-center justify-center gap-2">
+            <div className="flex -space-x-2">
+              {[["A", "#8b5cf6"], ["M", "#10b981"], ["K", "#06b6d4"], ["S", "#f97316"]].map(([letter, bg]) => (
+                <div key={letter} className="w-7 h-7 rounded-full border-2 border-[#0a0a0f] flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: bg }}>
+                  {letter}
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-gray-400">
+              <span className="text-white font-semibold">140+ Egyptians</span> already tracking their portfolio
+            </p>
+          </div>
         </div>
       </div>
     </div>

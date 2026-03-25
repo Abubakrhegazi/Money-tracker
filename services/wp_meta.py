@@ -30,6 +30,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+if not GROQ_API_KEY:
+    raise RuntimeError("GROQ_API_KEY environment variable is not set")
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 META_TOKEN = META_WHATSAPP_TOKEN
