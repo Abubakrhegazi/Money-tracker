@@ -47,6 +47,7 @@ export default function AdminSubscriptionsPage() {
     const [loading, setLoading] = useState(true);
     const [modal, setModal] = useState<ModalState>(null);
     const [saving, setSaving] = useState(false);
+    const [cancellingTrial, setCancellingTrial] = useState<string | null>(null);
     const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
     const load = useCallback(() => {
@@ -68,6 +69,20 @@ export default function AdminSubscriptionsPage() {
 
     const openModal = (user: Sub) =>
         setModal({ user, plan: user.effective_plan, days: 30 });
+
+    const handleCancelTrial = async (user: Sub) => {
+        if (!confirm(`Cancel trial for ${user.user_id}? They will revert to free immediately.`)) return;
+        setCancellingTrial(user.user_id);
+        try {
+            await adminApi.cancelTrial(user.user_id);
+            showToast(`Trial cancelled for ${user.user_id}`, true);
+            load();
+        } catch (err: any) {
+            showToast(err.message || "Failed to cancel trial", false);
+        } finally {
+            setCancellingTrial(null);
+        }
+    };
 
     const handleSave = async () => {
         if (!modal) return;
@@ -171,12 +186,23 @@ export default function AdminSubscriptionsPage() {
                                         <td className="py-3 px-4 text-gray-500 text-xs">{fmt(u.plan_expires_at)}</td>
                                         <td className="py-3 px-4 text-gray-500 text-xs">{fmt(u.trial_ends_at)}</td>
                                         <td className="py-3 px-4 text-right">
-                                            <button
-                                                onClick={() => openModal(u)}
-                                                className="text-xs px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition font-medium"
-                                            >
-                                                Change plan
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                {u.is_trial && (
+                                                    <button
+                                                        onClick={() => handleCancelTrial(u)}
+                                                        disabled={cancellingTrial === u.user_id}
+                                                        className="text-xs px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition font-medium disabled:opacity-50"
+                                                    >
+                                                        {cancellingTrial === u.user_id ? "…" : "Cancel trial"}
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => openModal(u)}
+                                                    className="text-xs px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition font-medium"
+                                                >
+                                                    Change plan
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

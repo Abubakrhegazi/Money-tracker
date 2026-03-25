@@ -407,6 +407,32 @@ async def set_subscription_plan(request: Request, body: SetPlanBody, admin: str 
     return {"status": "ok", "user_id": body.user_id, "plan": body.plan, "days": body.days}
 
 
+class CancelTrialBody(BaseModel):
+    user_id: str
+
+
+@router.post("/subscriptions/cancel-trial")
+async def cancel_trial(request: Request, body: CancelTrialBody, admin: str = Depends(get_current_admin)):
+    """Clear a user's active trial, reverting them to free (admin JWT required)."""
+    from core.database import Session, UserSettings
+    try:
+        with Session() as session:
+            us = session.query(UserSettings).filter_by(user_id=body.user_id).first()
+            if not us or not us.trial_ends_at:
+                raise HTTPException(status_code=404, detail="No active trial found for this user")
+            us.trial_ends_at = None
+            session.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    ip = _get_client_ip(request)
+    log_admin_action(admin, "cancel_trial", target_type="user", target_id=body.user_id, ip=ip)
+
+    return {"status": "ok", "user_id": body.user_id}
+
+
 # Kept for backward-compat with any external callers using X-Admin-Secret
 @router.post("/set-plan")
 async def admin_set_plan_legacy(request: Request, body: SetPlanBody):

@@ -140,6 +140,11 @@ export const adminApi = {
             method: "POST",
             body: JSON.stringify({ user_id, plan, days }),
         }),
+    cancelTrial: (user_id: string) =>
+        adminFetch("/subscriptions/cancel-trial", {
+            method: "POST",
+            body: JSON.stringify({ user_id }),
+        }),
 
     // Settings
     changePassword: (current: string, newPw: string) =>
