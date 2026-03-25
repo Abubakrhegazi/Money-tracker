@@ -5,12 +5,13 @@ import { adminApi, getAdminToken, clearAdminToken } from "@/lib/admin-api";
 import Link from "next/link";
 import {
     LayoutDashboard, Users, Receipt, BarChart3, Shield, Settings,
-    ClipboardList, Activity, LogOut, Menu, X, ChevronRight,
+    ClipboardList, Activity, LogOut, Menu, X, ChevronRight, Crown,
 } from "lucide-react";
 
 const NAV = [
     { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/admin/users", icon: Users, label: "Users" },
+    { href: "/admin/subscriptions", icon: Crown, label: "Subscriptions" },
     { href: "/admin/transactions", icon: Receipt, label: "Transactions" },
     { href: "/admin/stats", icon: BarChart3, label: "Analytics" },
     { href: "/admin/audit", icon: ClipboardList, label: "Audit Log" },

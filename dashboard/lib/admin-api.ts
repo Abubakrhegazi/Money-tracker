@@ -128,6 +128,19 @@ export const adminApi = {
     // Audit
     getAuditLog: (page = 1) => adminFetch(`/audit-log?page=${page}`),
 
+    // Subscriptions
+    getSubscriptions: (params: Record<string, any> = {}) => {
+        const qs = new URLSearchParams(
+            Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ""))
+        ).toString();
+        return adminFetch(`/subscriptions?${qs}`);
+    },
+    setPlan: (user_id: string, plan: string, days: number) =>
+        adminFetch("/subscriptions/set-plan", {
+            method: "POST",
+            body: JSON.stringify({ user_id, plan, days }),
+        }),
+
     // Settings
     changePassword: (current: string, newPw: string) =>
         adminFetch("/settings/password", {

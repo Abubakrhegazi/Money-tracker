@@ -1445,6 +1445,45 @@ def upgrade_user_plan(user_id: str, plan: str, days: int) -> bool:
         session.close()
 
 
+def get_subscriptions_admin(page=1, per_page=25, search=None, plan_filter=None):
+    """Get paginated UserSettings rows for admin subscription management."""
+    session = Session()
+    try:
+        now = datetime.utcnow()
+        q = session.query(UserSettings)
+        if search:
+            q = q.filter(UserSettings.telegram_user_id.ilike(f"%{search}%"))
+        if plan_filter and plan_filter != "all":
+            q = q.filter(UserSettings.plan == plan_filter)
+        total = q.count()
+        rows = q.order_by(UserSettings.updated_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+        result = []
+        for us in rows:
+            plan = us.plan or "free"
+            is_trial = False
+            effective_plan = plan
+            # Trial still active?
+            if us.trial_ends_at and us.trial_ends_at > now and plan == "free":
+                effective_plan = "pro"
+                is_trial = True
+            # Paid plan expired?
+            if plan in ("pro", "elite") and us.plan_expires_at and us.plan_expires_at <= now and not is_trial:
+                effective_plan = "free"
+            result.append({
+                "user_id": us.telegram_user_id,
+                "name": us.name,
+                "plan": plan,
+                "effective_plan": effective_plan,
+                "is_trial": is_trial,
+                "plan_expires_at": us.plan_expires_at.isoformat() if us.plan_expires_at else None,
+                "trial_ends_at": us.trial_ends_at.isoformat() if us.trial_ends_at else None,
+            })
+        return {"subscriptions": result, "total": total, "page": page, "per_page": per_page}
+    finally:
+        session.close()
+
+
 def set_paymob_order_id(user_id: str, order_id: str) -> bool:
     """Store Paymob order ID for reconciliation."""
     user_id = get_primary_id(user_id)

@@ -367,20 +367,50 @@ async def env_config(admin: str = Depends(get_current_admin)):
 
 # ── Subscription management ──────────────────────────────────────────────
 
-# ADMIN_SECRET imported from core.config above
-
 class SetPlanBody(BaseModel):
-    telegram_id: str
-    plan: str  # "free" | "pro" | "elite"
+    user_id: str
+    plan: str   # "free" | "pro" | "elite"
     days: int = 30
 
 
+@router.get("/subscriptions")
+async def list_subscriptions(
+    request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    search: Optional[str] = None,
+    plan: Optional[str] = None,
+    admin: str = Depends(get_current_admin),
+):
+    """List all users with their subscription plan (admin JWT required)."""
+    from core.database import get_subscriptions_admin
+    return get_subscriptions_admin(page=page, per_page=per_page, search=search, plan_filter=plan)
+
+
+@router.post("/subscriptions/set-plan")
+async def set_subscription_plan(request: Request, body: SetPlanBody, admin: str = Depends(get_current_admin)):
+    """Set a user's subscription plan (admin JWT required)."""
+    if body.plan not in ("free", "pro", "elite"):
+        raise HTTPException(status_code=400, detail="Plan must be 'free', 'pro', or 'elite'")
+    if body.days < 1 or body.days > 3650:
+        raise HTTPException(status_code=400, detail="Days must be between 1 and 3650")
+
+    from core.database import set_user_plan
+    success = set_user_plan(body.user_id, body.plan, body.days)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to set plan")
+
+    ip = _get_client_ip(request)
+    log_admin_action(admin, "set_plan", target_type="user", target_id=body.user_id,
+                     ip=ip, details=f"plan={body.plan} days={body.days}")
+
+    return {"status": "ok", "user_id": body.user_id, "plan": body.plan, "days": body.days}
+
+
+# Kept for backward-compat with any external callers using X-Admin-Secret
 @router.post("/set-plan")
-async def admin_set_plan(request: Request, body: SetPlanBody):
-    """
-    Manually set a user's plan. Protected by ADMIN_SECRET header.
-    Used for testing and gifting subscriptions.
-    """
+async def admin_set_plan_legacy(request: Request, body: SetPlanBody):
+    """Legacy set-plan via ADMIN_SECRET header — prefer /subscriptions/set-plan."""
     secret = request.headers.get("X-Admin-Secret", "")
     if not ADMIN_SECRET or secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -390,12 +420,12 @@ async def admin_set_plan(request: Request, body: SetPlanBody):
         raise HTTPException(status_code=400, detail="Days must be between 1 and 3650")
 
     from core.database import set_user_plan
-    success = set_user_plan(body.telegram_id, body.plan, body.days)
+    success = set_user_plan(body.user_id, body.plan, body.days)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to set plan")
 
     ip = _get_client_ip(request)
-    log_admin_action("api", "set_plan", target_type="user", target_id=body.telegram_id,
+    log_admin_action("api", "set_plan", target_type="user", target_id=body.user_id,
                      ip=ip, details=f"plan={body.plan} days={body.days}")
 
-    return {"status": "ok", "telegram_id": body.telegram_id, "plan": body.plan, "days": body.days}
+    return {"status": "ok", "user_id": body.user_id, "plan": body.plan, "days": body.days}
