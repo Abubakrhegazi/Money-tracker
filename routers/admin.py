@@ -417,7 +417,7 @@ async def cancel_trial(request: Request, body: CancelTrialBody, admin: str = Dep
     from core.database import Session, UserSettings
     try:
         with Session() as session:
-            us = session.query(UserSettings).filter_by(user_id=body.user_id).first()
+            us = session.query(UserSettings).filter_by(telegram_user_id=body.user_id).first()
             if not us or not us.trial_ends_at:
                 raise HTTPException(status_code=404, detail="No active trial found for this user")
             us.trial_ends_at = None
