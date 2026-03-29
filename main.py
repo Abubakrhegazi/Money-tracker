@@ -8,7 +8,7 @@ from core.database import (
     init_db, save_expense, get_monthly_summary, get_recent_expenses,
     delete_expense, create_login_token, Session, Expense, set_budget, get_budget,
     get_notification_settings, update_notification_settings, delete_user_data,
-    get_link_token, save_investment, get_investments, get_investment_summary,
+    save_investment, get_investments, get_investment_summary,
     activate_trial, get_user_plan,
 )
 from services.subscription import check_plan, send_upgrade_message
@@ -811,19 +811,7 @@ async def investments_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(reply, parse_mode="Markdown")
 
 
-async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    token = get_link_token(user_id)
-    
-    await update.message.reply_text(
-        f"📱 *Link your WhatsApp account*\n\n"
-        f"Send this message to your WhatsApp bot:\n\n"
-        f"`/link {token}`\n\n"
-        f"Token expires in 10 minutes.",
-        parse_mode="Markdown"
-    )
-
-# Register in main():
+# WAVE 2: WhatsApp — /link command removed for MVP.
 
 # ── /notifications command ─────────────────────────────────────────────
 
@@ -985,7 +973,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  /notifications off — disable all\n\n"
         "📱 *Other*\n"
         "  /dashboard — open web dashboard\n"
-        "  /link — link WhatsApp account\n"
         "  /deleteaccount — delete all your data\n\n"
         "🔒 *Categories:*\n"
         "  food | transport | shopping | bills\n"
@@ -1086,7 +1073,7 @@ def main():
     # ── Handlers ──────────────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("link", link_command))
+    # WAVE 2: CommandHandler("link", link_command) removed for MVP.
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(CommandHandler("summary", summary_command))
     app.add_handler(CommandHandler("history", history_command))

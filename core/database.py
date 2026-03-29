@@ -56,6 +56,8 @@ class LoginToken(Base):
     used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# WAVE 2: WhatsApp — UserLink table kept for schema continuity (delete_user_data
+# still cleans it up) but no new links will be created without the WhatsApp bot.
 class UserLink(Base):
     __tablename__ = "user_links"
     id = Column(Integer, primary_key=True)
@@ -485,62 +487,8 @@ def get_primary_id(user_id: str) -> str:
     finally:
         session.close()
 
-def link_accounts(primary_id: str, linked_id: str, platform: str):
-    session = Session()
-    try:
-        existing = session.query(UserLink).filter_by(linked_id=linked_id).first()
-        if existing:
-            existing.primary_id = primary_id
-        else:
-            session.add(UserLink(
-                primary_id=primary_id,
-                linked_id=linked_id,
-                platform=platform
-            ))
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
-
-def get_link_token(primary_id: str) -> str:
-    """Store a temp token for linking."""
-    import secrets
-    token = secrets.token_urlsafe(16)
-    session = Session()
-    try:
-        # reuse UserLink table with a temp marker
-        session.add(UserLink(
-            primary_id=primary_id,
-            linked_id=f"pending_{token}",
-            platform="pending"
-        ))
-        session.commit()
-        return token
-    finally:
-        session.close()
-
-def resolve_link_token(token: str, whatsapp_id: str) -> str | None:
-    """Links WhatsApp ID to Telegram ID using token. Returns primary_id."""
-    session = Session()
-    try:
-        link = session.query(UserLink).filter_by(
-            linked_id=f"pending_{token}"
-        ).first()
-        if not link:
-            return None
-        primary_id = link.primary_id
-        # replace pending with real whatsapp id
-        link.linked_id = whatsapp_id
-        link.platform = "whatsapp"
-        session.commit()
-        return primary_id
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+# WAVE 2: WhatsApp — link_accounts(), get_link_token(), resolve_link_token()
+# removed for MVP. Re-add when WhatsApp integration is restored in Wave 2.
 
 # ── Pending Transactions (persist across restarts) ────────────────────────
 
@@ -646,7 +594,7 @@ def get_all_users_admin(page=1, per_page=25, search=None, status=None):
             if u.user_id.isdigit() and len(u.user_id) < 15:
                 platforms.add("telegram")
             else:
-                platforms.add("whatsapp")
+                platforms.add("whatsapp")  # WAVE 2: dead path until WhatsApp is re-added
 
             result.append({
                 "user_id": u.user_id,

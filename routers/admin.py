@@ -354,7 +354,7 @@ async def env_config(admin: str = Depends(get_current_admin)):
     """Show which env vars are set — never expose any values."""
     keys = [
         "DATABASE_URL", "GROQ_API_KEY", "TELEGRAM_BOT_TOKEN",
-        "META_WHATSAPP_TOKEN", "META_PHONE_NUMBER_ID", "META_VERIFY_TOKEN",
+        # WAVE 2: META_WHATSAPP_TOKEN, META_PHONE_NUMBER_ID, META_VERIFY_TOKEN removed for MVP.
         "JWT_SECRET", "ADMIN_JWT_SECRET", "ADMIN_USERNAME",
         "DASHBOARD_URL", "PORT",
     ]

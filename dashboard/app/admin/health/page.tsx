@@ -21,7 +21,7 @@ export default function AdminHealthPage() {
 
     const services = [
         { name: "FastAPI Backend", status: "operational", detail: "Serving admin + user API" },
-        { name: "WhatsApp Bot", status: maintenance ? "maintenance" : "operational", detail: maintenance ? "Maintenance mode ON" : "Processing messages" },
+        // WAVE 2: WhatsApp Bot service removed for MVP.
         { name: "Telegram Bot", status: "operational", detail: "Running via python-telegram-bot" },
         { name: "PostgreSQL", status: "operational", detail: "Connected via SQLAlchemy" },
         { name: "Groq AI", status: "operational", detail: "LLM + Whisper transcription" },

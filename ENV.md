@@ -21,8 +21,7 @@ All required environment variables for the MoneyBot application.
 | `ADMIN_TOTP_SECRET` | _(empty)_ | TOTP secret for admin 2FA |
 | `ADMIN_SESSION_EXPIRY` | `1800` | Admin session TTL in seconds |
 | `INTERNAL_API_KEY` | _(empty)_ | API key for bot→API internal calls |
-| `WHATSAPP_TOKEN` | _(empty)_ | WhatsApp Business API token |
-| `META_VERIFY_TOKEN` | _(empty)_ | Meta webhook verification token |
+<!-- WAVE 2: WHATSAPP_TOKEN, META_VERIFY_TOKEN, META_PHONE_NUMBER_ID removed for MVP. Re-add in Wave 2. -->
 | `FRONTEND_URL` | `https://aurabot.website` | Dashboard URL (used in bot links) |
 | `R2_ACCOUNT_ID` | _(empty)_ | Cloudflare R2 account ID (for DB backups) |
 | `R2_ACCESS_KEY_ID` | _(empty)_ | R2 API access key |

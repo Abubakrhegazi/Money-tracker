@@ -84,9 +84,7 @@ app.include_router(admin_router, prefix="/admin", tags=["admin"])
 from routers.payments import router as payments_router
 app.include_router(payments_router)
 
-# ── WhatsApp webhook router ─────────────────────────────────────────────
-from routers.whatsapp import router as whatsapp_router
-app.include_router(whatsapp_router)
+# WAVE 2: WhatsApp webhook router removed for MVP.
 
 # ── Security headers middleware ──────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -469,31 +467,8 @@ async def telegram_link_auth(request: Request, body: TelegramLinkAuthBody):
     token = create_jwt_token(str(telegram_user_id), "")
     return {"token": token}
 
-# ── WhatsApp auth — internal-only (bot→API), gated by API key ────────
-
-_PHONE_REGEX = re.compile(r"^\+?[1-9]\d{6,14}$")
-
-@app.post("/auth/whatsapp-token")
-@limiter.limit("5/minute")
-async def create_whatsapp_login(request: Request, phone: str):
-    # Gate: only the bot should call this endpoint
-    api_key = request.headers.get("X-Internal-Api-Key", "")
-    if not INTERNAL_API_KEY or api_key != INTERNAL_API_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    # Validate phone format
-    if not _PHONE_REGEX.match(phone):
-        raise HTTPException(status_code=400, detail="Invalid phone number format")
-    raw = create_login_token(phone, minutes=10)
-    return {"token": raw}
-
-@app.get("/auth/whatsapp")
-@limiter.limit("5/minute")
-async def whatsapp_login(request: Request, token: str):
-    user_id = consume_login_token(token)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired link")
-    jwt_token = create_jwt_token(user_id, user_id)
-    return {"token": jwt_token, "user_id": user_id}
+# WAVE 2: WhatsApp auth endpoints removed for MVP.
+# Removed: POST /auth/whatsapp-token, GET /auth/whatsapp, _PHONE_REGEX
 
 # ── Investments ────────────────────────────────────────────────────────
 

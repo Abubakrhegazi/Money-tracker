@@ -44,15 +44,8 @@ BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 # ── Gold API ─────────────────────────────────────────────────────────────
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 
-# ── WhatsApp (webhook / direct API) ─────────────────────────────────────
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-
-# ── WhatsApp (Meta — wp_meta.py / Flask entry point) ────────────────────
-META_WHATSAPP_TOKEN = os.getenv("META_WHATSAPP_TOKEN")
-META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN")
+# WAVE 2: WhatsApp — env vars removed for MVP (VERIFY_TOKEN, WHATSAPP_TOKEN,
+# WHATSAPP_PHONE_NUMBER_ID, META_WHATSAPP_TOKEN, META_PHONE_NUMBER_ID, META_VERIFY_TOKEN)
 
 # ── Groq AI ──────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

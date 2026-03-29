@@ -8,7 +8,7 @@ requests
 psycopg2-binary
 python-jose[cryptography]
 alembic
-Flask
+# WAVE 2: Flask removed for MVP (was used by WhatsApp/wp_meta.py only)
 bcrypt
 pyotp
 slowapi
