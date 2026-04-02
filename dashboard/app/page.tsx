@@ -163,8 +163,8 @@ export default function LandingPage() {
                   {loading ? "Entering..." : "Enter Dashboard"}
                 </ShimmerButton>
               ) : (
-                {/* WAVE 2: WhatsApp CTA button removed for MVP. */}
                 <>
+                  {/* WAVE 2: WhatsApp CTA button removed for MVP. */}
                   <a
                     href="https://t.me/walletTrackinggBot"
                     target="_blank"
@@ -507,8 +507,8 @@ export default function LandingPage() {
                 {loading ? "Entering..." : "Open Dashboard"}
               </ShimmerButton>
             ) : (
-              {/* WAVE 2: WhatsApp CTA button removed for MVP. */}
               <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
+                {/* WAVE 2: WhatsApp CTA button removed for MVP. */}
                 <a
                   href="https://t.me/walletTrackinggBot"
                   target="_blank"

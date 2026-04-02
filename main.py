@@ -10,11 +10,17 @@ from core.database import (
     get_notification_settings, update_notification_settings, delete_user_data,
     save_investment, get_investments, get_investment_summary,
     activate_trial, get_user_plan,
+    save_subscription_request,
 )
 from services.subscription import check_plan, send_upgrade_message
 from datetime import datetime
 
+from core.config import ADMIN_CHAT_ID as _ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN as _BOT_TOKEN
+
 FRONTEND_URL = "https://aurabot.website"
+INSTAPAY_NUMBER = "01020127700"
+INSTAPAY_NAME = "abubakrhegazi"
+PLAN_PRICES = {"pro": 99, "elite": 199}
 
 VALID_EXPENSE_CATS = {"food", "transport", "shopping", "bills", "entertainment", "health", "education", "investment", "other"}
 VALID_INCOME_CATS = {"salary", "freelance", "gift", "refund", "investment", "other_income"}
@@ -691,6 +697,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return WAITING_FOR_EDIT
 
+    elif action in ("subscribe_pro", "subscribe_elite"):
+        chosen_plan = action.split("_")[1]  # "pro" or "elite"
+        context.user_data["chosen_plan"] = chosen_plan
+        price = PLAN_PRICES[chosen_plan]
+        plan_label = "Pro ⭐" if chosen_plan == "pro" else "Elite 💎"
+        await query.edit_message_text(
+            f"💳 *Aura {plan_label} — {price} EGP/month*\n\n"
+            f"Send payment via *InstaPay*:\n\n"
+            f"📱 Number: `{INSTAPAY_NUMBER}`\n"
+            f"👤 Name: {INSTAPAY_NAME}\n"
+            f"💰 Amount: *{price} EGP*\n\n"
+            "After paying, *send a screenshot of the receipt here* and we'll activate your subscription within 24 hours. 🎉",
+            parse_mode="Markdown"
+        )
+
     elif action == "deleteaccount_confirm":
         user_id = str(query.from_user.id)
         success = delete_user_data(user_id)
@@ -961,7 +982,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 *Reports*\n"
         "  /summary — monthly spending overview\n"
         "  /history — last 10 transactions (edit/delete)\n"
-        "  /investments — investment portfolio\n\n"
+        "  /investments — investment portfolio ⭐\n\n"
         "🎯 *Budgets*\n"
         "  /budget — view all budgets\n"
         "  /budget food 3000 — set budget for a category\n\n"
@@ -970,13 +991,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  /notifications daily — toggle daily summary\n"
         "  /notifications weekly — toggle weekly summary\n"
         "  /notifications time 9pm — set summary time\n"
-        "  /notifications off — disable all\n\n"
+        "  /notifications off — disable all ⭐\n\n"
+        "💳 *Subscription*\n"
+        "  /subscribe — upgrade to Pro or Elite\n\n"
         "📱 *Other*\n"
         "  /dashboard — open web dashboard\n"
         "  /deleteaccount — delete all your data\n\n"
         "🔒 *Categories:*\n"
         "  food | transport | shopping | bills\n"
-        "  entertainment | health | education | other",
+        "  entertainment | health | education | other\n\n"
+        "_⭐ = Pro feature_",
         parse_mode="Markdown"
     )
 
@@ -1001,6 +1025,97 @@ async def deleteaccount_command(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode="Markdown",
         reply_markup=keyboard
     )
+
+# ── /subscribe command ────────────────────────────────────────────
+
+async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    plan_info = get_user_plan(user_id)
+    plan = plan_info["plan"]
+
+    if plan in ("pro", "elite"):
+        expires = plan_info.get("plan_expires_at") or plan_info.get("trial_ends_at") or "—"
+        label = "Pro ⭐" if plan == "pro" else "Elite 💎"
+        await update.message.reply_text(
+            f"✅ You already have an active *Aura {label}* subscription.\n"
+            f"Valid until: `{expires}`\n\n"
+            "_Contact support if you'd like to upgrade or extend._",
+            parse_mode="Markdown"
+        )
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⭐ Pro — 99 EGP/month", callback_data="subscribe_pro"),
+            InlineKeyboardButton("💎 Elite — 199 EGP/month", callback_data="subscribe_elite"),
+        ]
+    ])
+    await update.message.reply_text(
+        "🚀 *Upgrade Aura*\n\n"
+        "Choose your plan:\n\n"
+        "⭐ *Pro — 99 EGP/month*\n"
+        "  • Investment portfolio tracking\n"
+        "  • Daily & weekly summaries\n"
+        "  • Full dashboard access\n\n"
+        "💎 *Elite — 199 EGP/month*\n"
+        "  • Everything in Pro\n"
+        "  • Priority support\n\n"
+        "Payment via *InstaPay* — tap a plan to continue.",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming photos — only acts when user has a chosen_plan pending."""
+    chosen_plan = context.user_data.get("chosen_plan")
+    if not chosen_plan:
+        return  # not in subscribe flow, ignore
+
+    user = update.effective_user
+    user_id = str(user.id)
+    first_name = user.first_name or ""
+    username = f"@{user.username}" if user.username else "(no username)"
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    price = PLAN_PRICES.get(chosen_plan, "?")
+    plan_label = "Pro ⭐" if chosen_plan == "pro" else "Elite 💎"
+
+    # Get highest-res photo
+    photo = update.message.photo[-1]
+    file_id = photo.file_id
+
+    # Save pending request in DB
+    save_subscription_request(user_id, chosen_plan, photo_file_id=file_id)
+
+    # Forward screenshot + details to admin
+    if _ADMIN_CHAT_ID:
+        caption = (
+            f"💳 *New Subscription Request*\n\n"
+            f"👤 {first_name} ({username})\n"
+            f"🆔 Telegram ID: `{user_id}`\n"
+            f"📦 Plan: *{plan_label}* — {price} EGP/month\n"
+            f"🕐 Submitted: {now_str}"
+        )
+        try:
+            await context.bot.send_photo(
+                chat_id=_ADMIN_CHAT_ID,
+                photo=file_id,
+                caption=caption,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Could not forward screenshot to admin: {e}")
+
+    context.user_data.pop("chosen_plan", None)
+
+    await update.message.reply_text(
+        "✅ *Got it!*\n\n"
+        "We received your payment screenshot.\n"
+        "Your *Aura " + plan_label + "* subscription will be activated within *24 hours* once we verify the payment.\n\n"
+        "_We'll send you a message here as soon as it's done!_ 🎉",
+        parse_mode="Markdown"
+    )
+
 
 # ── Global error handler ──────────────────────────────────────────
 
@@ -1082,7 +1197,9 @@ def main():
     app.add_handler(CommandHandler("notifications", notifications_command))
     app.add_handler(CommandHandler("investments", investments_command))
     app.add_handler(CommandHandler("deleteaccount", deleteaccount_command))
+    app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     # ── Error handler ─────────────────────────────────────────────

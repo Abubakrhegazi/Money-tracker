@@ -193,6 +193,24 @@ class UserSettings(Base):
     trial_ends_at = Column(DateTime, nullable=True)
     paymob_order_id = Column(String(255), nullable=True)
 
+
+class SubscriptionRequest(Base):
+    """Manual InstaPay subscription request submitted via screenshot."""
+    __tablename__ = "subscription_requests"
+    __table_args__ = (
+        Index("ix_sub_req_user_id", "telegram_user_id"),
+        Index("ix_sub_req_status", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    telegram_user_id = Column(String, nullable=False)
+    requested_plan = Column(String(10), nullable=False)   # pro | elite
+    status = Column(String(20), default="pending", nullable=False)  # pending | approved | rejected
+    pending_since = Column(DateTime, default=datetime.utcnow, nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+    photo_file_id = Column(String(200), nullable=True)    # Telegram file_id of screenshot
+
+
 def init_db():
     try:
         from sqlalchemy import inspect, text
@@ -1482,6 +1500,7 @@ def delete_user_data(user_id: str) -> bool:
         session.query(UserLink).filter(
             (UserLink.primary_id == user_id) | (UserLink.linked_id == user_id)
         ).delete(synchronize_session=False)
+        session.query(SubscriptionRequest).filter_by(telegram_user_id=user_id).delete()
         session.commit()
         logger.info(f"All data deleted for user {user_id}")
         return True
@@ -1489,5 +1508,86 @@ def delete_user_data(user_id: str) -> bool:
         session.rollback()
         logger.error(f"Failed to delete data for user {user_id}: {e}")
         return False
+    finally:
+        session.close()
+
+
+# ── InstaPay Subscription Request helpers ────────────────────────────────
+
+def save_subscription_request(user_id: str, requested_plan: str, photo_file_id: str | None = None) -> str:
+    """Create a new pending subscription request. Returns the request ID."""
+    user_id = get_primary_id(user_id)
+    session = Session()
+    try:
+        req = SubscriptionRequest(
+            id=str(uuid.uuid4()),
+            telegram_user_id=user_id,
+            requested_plan=requested_plan,
+            status="pending",
+            pending_since=datetime.utcnow(),
+            photo_file_id=photo_file_id,
+        )
+        session.add(req)
+        session.commit()
+        return req.id
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_pending_subscription_requests() -> list:
+    """Return all pending subscription requests."""
+    session = Session()
+    try:
+        rows = session.query(SubscriptionRequest).filter_by(status="pending").order_by(
+            SubscriptionRequest.pending_since.asc()
+        ).all()
+        return [{
+            "id": r.id,
+            "telegram_user_id": r.telegram_user_id,
+            "requested_plan": r.requested_plan,
+            "pending_since": r.pending_since.isoformat() if r.pending_since else None,
+            "photo_file_id": r.photo_file_id,
+        } for r in rows]
+    finally:
+        session.close()
+
+
+def approve_subscription_request(request_id: str, plan: str, duration_days: int) -> str | None:
+    """Approve a pending request, activate the plan. Returns telegram_user_id or None."""
+    session = Session()
+    try:
+        req = session.query(SubscriptionRequest).filter_by(id=request_id, status="pending").first()
+        if not req:
+            return None
+        req.status = "approved"
+        req.approved_at = datetime.utcnow()
+        session.commit()
+        user_id = req.telegram_user_id
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+    upgrade_user_plan(user_id, plan, duration_days)
+    return user_id
+
+
+def reject_subscription_request(request_id: str) -> str | None:
+    """Reject a pending request. Returns telegram_user_id or None."""
+    session = Session()
+    try:
+        req = session.query(SubscriptionRequest).filter_by(id=request_id, status="pending").first()
+        if not req:
+            return None
+        req.status = "rejected"
+        session.commit()
+        return req.telegram_user_id
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()

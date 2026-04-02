@@ -433,6 +433,106 @@ async def cancel_trial(request: Request, body: CancelTrialBody, admin: str = Dep
     return {"status": "ok", "user_id": body.user_id}
 
 
+# ── InstaPay pending payments ────────────────────────────────────────────
+
+@router.get("/pending-payments")
+async def list_pending_payments(admin: str = Depends(get_current_admin)):
+    """Return all subscription requests currently awaiting approval."""
+    from core.database import get_pending_subscription_requests
+    return get_pending_subscription_requests()
+
+
+class ApprovePaymentBody(BaseModel):
+    plan: str        # "pro" | "elite"
+    duration_days: int = 30
+
+
+@router.post("/approve-payment/{subscription_id}")
+async def approve_payment(
+    subscription_id: str,
+    body: ApprovePaymentBody,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+):
+    """Approve a pending InstaPay payment, activate the plan, and notify the user."""
+    if body.plan not in ("pro", "elite"):
+        raise HTTPException(status_code=400, detail="Plan must be 'pro' or 'elite'")
+    if body.duration_days < 1 or body.duration_days > 3650:
+        raise HTTPException(status_code=400, detail="duration_days must be 1–3650")
+
+    from core.database import approve_subscription_request
+    from datetime import timedelta
+
+    user_id = approve_subscription_request(subscription_id, body.plan, body.duration_days)
+    if not user_id:
+        raise HTTPException(status_code=404, detail="Pending request not found")
+
+    end_date = (datetime.utcnow() + timedelta(days=body.duration_days)).strftime("%Y-%m-%d")
+    plan_label = "Pro ⭐" if body.plan == "pro" else "Elite 💎"
+    message = (
+        f"🎉 *تهانينا! Your Aura {plan_label} is now active!*\n\n"
+        f"✅ Valid until: *{end_date}*\n\n"
+        f"Enjoy all premium features. Thank you for subscribing! 🚀"
+    )
+
+    # Send Telegram notification to the user
+    from core.config import TELEGRAM_BOT_TOKEN
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": user_id, "text": message, "parse_mode": "Markdown"},
+            )
+    except Exception as e:
+        logger.warning(f"Could not notify user {user_id} after approval: {e}")
+
+    ip = _get_client_ip(request)
+    log_admin_action(
+        admin, "approve_payment",
+        target_type="subscription_request", target_id=subscription_id,
+        ip=ip, details=f"user={user_id} plan={body.plan} days={body.duration_days}"
+    )
+
+    return {"status": "approved", "user_id": user_id, "plan": body.plan, "valid_until": end_date}
+
+
+@router.post("/reject-payment/{subscription_id}")
+async def reject_payment(
+    subscription_id: str,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+):
+    """Reject a pending InstaPay payment and notify the user."""
+    from core.database import reject_subscription_request
+    from core.config import TELEGRAM_BOT_TOKEN
+    import httpx
+
+    user_id = reject_subscription_request(subscription_id)
+    if not user_id:
+        raise HTTPException(status_code=404, detail="Pending request not found")
+
+    message = (
+        "❌ *Subscription Request Update*\n\n"
+        "Unfortunately we couldn't verify your payment.\n"
+        "Please try again or contact support. 🙏"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": user_id, "text": message, "parse_mode": "Markdown"},
+            )
+    except Exception as e:
+        logger.warning(f"Could not notify user {user_id} after rejection: {e}")
+
+    ip = _get_client_ip(request)
+    log_admin_action(admin, "reject_payment", target_type="subscription_request",
+                     target_id=subscription_id, ip=ip, details=f"user={user_id}")
+
+    return {"status": "rejected", "user_id": user_id}
+
+
 # Kept for backward-compat with any external callers using X-Admin-Secret
 @router.post("/set-plan")
 async def admin_set_plan_legacy(request: Request, body: SetPlanBody):

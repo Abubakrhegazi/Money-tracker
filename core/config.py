@@ -50,6 +50,10 @@ GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 # ── Groq AI ──────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# ── Admin Telegram ───────────────────────────────────────────────────────
+# Your personal Telegram chat ID — receives forwarded payment screenshots
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "")
+
 # ── Misc ─────────────────────────────────────────────────────────────────
 API_URL = os.getenv("API_URL")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://moneybot-beta.vercel.app")
